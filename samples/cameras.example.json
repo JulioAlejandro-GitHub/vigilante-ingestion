@@ -1,0 +1,10 @@
+[
+  {
+    "camera_id": "11111111-1111-1111-1111-111111111111",
+    "external_camera_key": "cam01",
+    "source_type": "video_file",
+    "source_file": "samples/cam01.mp4",
+    "capture_fps": 1,
+    "storage_backend": "local"
+  }
+]
