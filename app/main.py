@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
 
 from app.config import config_from_env, parse_bool, parse_datetime
+from app.messaging.topology import FrameIngestedTopology
 from app.publisher.frame_ingested_publisher import OutboxFilePublisher
+from app.publisher.publish_mode import CompositePublisher, PublishMode
+from app.publisher.rabbitmq_publisher import RabbitMQFrameIngestedPublisher
 from app.runner.replay_runner import ReplayRunner
 from app.storage.local_storage import LocalFrameStorage
 from app.storage.minio_storage import MinioFrameStorage
@@ -16,8 +20,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     config = _merge_cli(config_from_env(), args)
+    logging.basicConfig(level=getattr(logging, config.log_level.upper(), logging.INFO))
     storage = _build_storage(config)
-    publisher = OutboxFilePublisher(config.outbox_path, reset=config.outbox_reset)
+    publisher = _build_publisher(config)
     runner = ReplayRunner(config=config, storage=storage, publisher=publisher)
 
     try:
@@ -30,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
         "ingestion completed "
         f"frames_captured={result.frames_captured} "
         f"events_published={result.events_published} "
+        f"publish_mode={result.publish_mode} "
+        f"destinations={','.join(result.destinations)} "
         f"outbox={result.outbox_path}"
     )
     return 0
@@ -43,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-frames", type=int, help="Limit captured frames for tests or demos.")
     parser.add_argument("--storage-backend", choices=["local", "minio"], help="Frame storage backend.")
     parser.add_argument("--output-dir", type=Path, help="Local storage root directory.")
+    parser.add_argument("--publish-mode", choices=[mode.value for mode in PublishMode], help="Publication mode: jsonl, rabbitmq or both.")
     parser.add_argument("--outbox", type=Path, help="JSONL outbox path for frame.ingested events.")
     parser.add_argument("--outbox-reset", choices=["true", "false"], help="Reset the outbox before publishing.")
     parser.add_argument("--append-outbox", action="store_true", help="Append to the configured outbox.")
@@ -56,6 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--minio-secret-key", help="MinIO secret key.")
     parser.add_argument("--minio-bucket", help="MinIO bucket.")
     parser.add_argument("--minio-secure", choices=["true", "false"], help="Use TLS for MinIO.")
+    parser.add_argument("--rabbitmq-host", help="RabbitMQ host.")
+    parser.add_argument("--rabbitmq-port", type=int, help="RabbitMQ AMQP port.")
+    parser.add_argument("--rabbitmq-user", help="RabbitMQ username.")
+    parser.add_argument("--rabbitmq-password", help="RabbitMQ password.")
+    parser.add_argument("--rabbitmq-vhost", help="RabbitMQ virtual host.")
+    parser.add_argument("--rabbitmq-frame-exchange", help="RabbitMQ exchange for frame.ingested.")
+    parser.add_argument("--rabbitmq-frame-routing-key", help="RabbitMQ routing key for frame.ingested.")
+    parser.add_argument("--log-level", help="Python log level.")
     return parser
 
 
@@ -68,6 +84,7 @@ def _merge_cli(config, args):
         "max_frames": args.max_frames,
         "storage_backend": args.storage_backend,
         "local_storage_dir": args.output_dir,
+        "publish_mode": args.publish_mode,
         "outbox_path": args.outbox,
         "external_camera_key": args.external_camera_key,
         "organization_id": args.organization_id,
@@ -76,6 +93,14 @@ def _merge_cli(config, args):
         "minio_access_key": args.minio_access_key,
         "minio_secret_key": args.minio_secret_key,
         "minio_bucket": args.minio_bucket,
+        "rabbitmq_host": args.rabbitmq_host,
+        "rabbitmq_port": args.rabbitmq_port,
+        "rabbitmq_user": args.rabbitmq_user,
+        "rabbitmq_password": args.rabbitmq_password,
+        "rabbitmq_vhost": args.rabbitmq_vhost,
+        "rabbitmq_frame_exchange": args.rabbitmq_frame_exchange,
+        "rabbitmq_frame_routing_key": args.rabbitmq_frame_routing_key,
+        "log_level": args.log_level,
     }
     updates.update({key: value for key, value in mapping.items() if value is not None})
     if args.outbox_reset is not None:
@@ -103,6 +128,33 @@ def _build_storage(config):
     )
 
 
+def _build_publisher(config):
+    mode = PublishMode.parse(config.publish_mode)
+    publishers = []
+    if mode in {PublishMode.JSONL, PublishMode.BOTH}:
+        publishers.append(OutboxFilePublisher(config.outbox_path, reset=config.outbox_reset))
+    if mode in {PublishMode.RABBITMQ, PublishMode.BOTH}:
+        publishers.append(
+            RabbitMQFrameIngestedPublisher(
+                host=config.rabbitmq_host,
+                port=config.rabbitmq_port,
+                username=config.rabbitmq_user,
+                password=config.rabbitmq_password,
+                virtual_host=config.rabbitmq_vhost,
+                topology=FrameIngestedTopology(
+                    exchange=config.rabbitmq_frame_exchange,
+                    routing_key=config.rabbitmq_frame_routing_key,
+                    recognition_queue=config.rabbitmq_recognition_queue,
+                    dead_letter_exchange=config.rabbitmq_frame_dlx,
+                    dead_letter_queue=config.rabbitmq_frame_dlq,
+                    dead_letter_routing_key=config.rabbitmq_frame_dlq_routing_key,
+                ),
+            )
+        )
+    if len(publishers) == 1:
+        return publishers[0]
+    return CompositePublisher(publishers)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
-

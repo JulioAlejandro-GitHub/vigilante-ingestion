@@ -65,6 +65,7 @@ class IngestionConfig:
     max_frames: int | None = None
     storage_backend: str = "local"
     local_storage_dir: Path = Path("storage")
+    publish_mode: str = "jsonl"
     outbox_path: Path = Path("outbox/frame_ingested.jsonl")
     outbox_reset: bool = True
     replay: bool = True
@@ -84,6 +85,18 @@ class IngestionConfig:
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "vigilante-frames"
     minio_secure: bool = False
+    rabbitmq_host: str = "localhost"
+    rabbitmq_port: int = 5672
+    rabbitmq_user: str = "guest"
+    rabbitmq_password: str = "guest"
+    rabbitmq_vhost: str = "/"
+    rabbitmq_frame_exchange: str = "vigilante.frames"
+    rabbitmq_frame_routing_key: str = "frame.ingested"
+    rabbitmq_recognition_queue: str = "vigilante.recognition.frame_ingested"
+    rabbitmq_frame_dlx: str = "vigilante.frames.dlx"
+    rabbitmq_frame_dlq: str = "vigilante.recognition.frame_ingested.dlq"
+    rabbitmq_frame_dlq_routing_key: str = "frame.ingested.dlq"
+    log_level: str = "INFO"
 
     def __post_init__(self) -> None:
         if self.capture_fps <= 0:
@@ -92,6 +105,8 @@ class IngestionConfig:
             raise ValueError("max_frames must be greater than zero when provided")
         if self.storage_backend not in {"local", "minio"}:
             raise ValueError("storage_backend must be 'local' or 'minio'")
+        if self.publish_mode not in {"jsonl", "rabbitmq", "both"}:
+            raise ValueError("publish_mode must be 'jsonl', 'rabbitmq' or 'both'")
         UUID(self.camera_id)
 
 
@@ -105,6 +120,7 @@ def config_from_env() -> IngestionConfig:
         max_frames=int(max_frames) if max_frames else None,
         storage_backend=os.getenv("INGESTION_STORAGE_BACKEND", "local"),
         local_storage_dir=Path(os.getenv("INGESTION_LOCAL_STORAGE_DIR", "storage")),
+        publish_mode=os.getenv("INGESTION_PUBLISH_MODE", "jsonl"),
         outbox_path=Path(os.getenv("INGESTION_OUTBOX_PATH", "outbox/frame_ingested.jsonl")),
         outbox_reset=parse_bool(os.getenv("INGESTION_OUTBOX_RESET"), default=True),
         replay=parse_bool(os.getenv("INGESTION_REPLAY"), default=True),
@@ -121,5 +137,16 @@ def config_from_env() -> IngestionConfig:
         minio_secret_key=os.getenv("INGESTION_MINIO_SECRET_KEY", "minioadmin"),
         minio_bucket=os.getenv("INGESTION_MINIO_BUCKET", "vigilante-frames"),
         minio_secure=parse_bool(os.getenv("INGESTION_MINIO_SECURE"), default=False),
+        rabbitmq_host=os.getenv("RABBITMQ_HOST", os.getenv("INGESTION_RABBITMQ_HOST", "localhost")),
+        rabbitmq_port=int(os.getenv("RABBITMQ_PORT", os.getenv("INGESTION_RABBITMQ_PORT", "5672"))),
+        rabbitmq_user=os.getenv("RABBITMQ_USER", os.getenv("INGESTION_RABBITMQ_USER", "guest")),
+        rabbitmq_password=os.getenv("RABBITMQ_PASSWORD", os.getenv("INGESTION_RABBITMQ_PASSWORD", "guest")),
+        rabbitmq_vhost=os.getenv("RABBITMQ_VHOST", os.getenv("INGESTION_RABBITMQ_VHOST", "/")),
+        rabbitmq_frame_exchange=os.getenv("RABBITMQ_FRAME_EXCHANGE", "vigilante.frames"),
+        rabbitmq_frame_routing_key=os.getenv("RABBITMQ_FRAME_ROUTING_KEY", "frame.ingested"),
+        rabbitmq_recognition_queue=os.getenv("RABBITMQ_RECOGNITION_QUEUE", "vigilante.recognition.frame_ingested"),
+        rabbitmq_frame_dlx=os.getenv("RABBITMQ_FRAME_DLX", "vigilante.frames.dlx"),
+        rabbitmq_frame_dlq=os.getenv("RABBITMQ_FRAME_DLQ", "vigilante.recognition.frame_ingested.dlq"),
+        rabbitmq_frame_dlq_routing_key=os.getenv("RABBITMQ_FRAME_DLQ_ROUTING_KEY", "frame.ingested.dlq"),
+        log_level=os.getenv("INGESTION_LOG_LEVEL", "INFO"),
     )
-

@@ -18,6 +18,7 @@ de esta entrega.
 
 El código de la app corre localmente, sin Docker. MinIO puede usarse si ya está
 levantado en el stack de soporte, pero el modo por defecto usa filesystem local.
+RabbitMQ se usa solo cuando `INGESTION_PUBLISH_MODE=rabbitmq|both`.
 
 ## Instalación
 
@@ -36,10 +37,13 @@ Copia `.env.example` a `.env` y ajusta:
 - `INGESTION_FPS`: frecuencia de captura, por ejemplo `1`, `2` o `5`.
 - `INGESTION_STORAGE_BACKEND`: `local` o `minio`.
 - `INGESTION_LOCAL_STORAGE_DIR`: raíz de almacenamiento local.
+- `INGESTION_PUBLISH_MODE`: `jsonl`, `rabbitmq` o `both`.
 - `INGESTION_OUTBOX_PATH`: archivo JSONL donde se publican eventos.
 - `INGESTION_MAX_FRAMES`: límite opcional para demos y tests.
 - `INGESTION_REPLAY`: `true` para timestamps determinísticos.
 - `INGESTION_REPLAY_START_AT`: base temporal del replay.
+- `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`,
+  `RABBITMQ_VHOST`: conexión AMQP local.
 
 `camera_id` debe ser un UUID real existente en `api.camera`. No uses claves
 lógicas como FK operativa; si necesitas conservar una clave externa, usa
@@ -137,13 +141,49 @@ recognition queda para el siguiente slice de integración.
 
 ## Publicación
 
-Slice 1 publica a un outbox local JSONL. Esto evita bloquear la captura real por
-RabbitMQ y deja un artefacto reproducible para tests, demos y futura conexión
-al broker `vigilante.frames`.
+El modo por defecto sigue publicando a un outbox local JSONL. Para Slice 3
+también existe publicación real a RabbitMQ y un modo combinado:
+
+- `jsonl`: escribe `outbox/frame_ingested.jsonl`
+- `rabbitmq`: publica directo al broker
+- `both`: escribe JSONL y publica al broker en la misma corrida
 
 Por defecto el outbox se resetea al iniciar (`INGESTION_OUTBOX_RESET=true`) para
 que el replay sea reproducible. Usa `--append-outbox` si necesitas acumular
 eventos.
+
+Topología RabbitMQ declarada por el publisher:
+
+- exchange principal: `vigilante.frames`
+- routing key: `frame.ingested`
+- cola de recognition: `vigilante.recognition.frame_ingested`
+- DLX: `vigilante.frames.dlx`
+- DLQ: `vigilante.recognition.frame_ingested.dlq`
+- routing key DLQ: `frame.ingested.dlq`
+
+Publicación local a RabbitMQ:
+
+```bash
+docker compose -f ../vigilante-docs/docker/docker-compose.support.yml up -d rabbitmq
+
+PYTHONPATH=. python -m app.main \
+  --source-file samples/cam01.mp4 \
+  --camera-id 11111111-1111-1111-1111-111111111111 \
+  --fps 1 \
+  --max-frames 10 \
+  --publish-mode rabbitmq
+```
+
+Para conservar el artefacto reproducible y además probar el broker:
+
+```bash
+PYTHONPATH=. python -m app.main \
+  --source-file samples/cam01.mp4 \
+  --camera-id 11111111-1111-1111-1111-111111111111 \
+  --fps 1 \
+  --max-frames 10 \
+  --publish-mode both
+```
 
 ## Replay determinístico
 
@@ -168,11 +208,10 @@ La suite genera videos MP4 temporales con FFmpeg, valida metadata, extracción,
 storage local, construcción del evento `frame.ingested`, errores básicos y
 replay determinístico.
 
-## Pendiente Slice 2
+## Pendiente Slice 4
 
 - entrada RTSP real con proceso FFmpeg persistente
 - webcam local formal
-- publicación RabbitMQ en `vigilante.frames`
 - resolución de `s3://` desde recognition o integración con `vigilante-media`
 - health events (`camera_offline`, `stream_frozen`, `stream_recovered`)
 - control de backpressure y métricas operativas
