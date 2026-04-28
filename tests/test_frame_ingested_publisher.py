@@ -48,6 +48,32 @@ def test_build_frame_ingested_event_matches_recognition_contract(tmp_path) -> No
     assert event["context"]["organization_id"] == "org_demo"
 
 
+def test_build_frame_ingested_event_preserves_remote_s3_frame_uri() -> None:
+    frame = _frame()
+    stored = StoredFrame(
+        frame_ref="s3://vigilante-frames/frames/cam01/frame.jpg",
+        frame_uri="s3://vigilante-frames/frames/cam01/frame.jpg",
+        object_key="frames/cam01/frame.jpg",
+        metadata_ref="s3://vigilante-frames/frames/cam01/frame.json",
+        storage_backend="minio",
+        content_type="image/jpeg",
+        size_bytes=12,
+    )
+    config = IngestionConfig(
+        source_file=Path("samples/cam01.mp4"),
+        camera_id=CAMERA_ID,
+        storage_backend="minio",
+    )
+
+    event = build_frame_ingested_event(frame=frame, stored_frame=stored, config=config)
+
+    assert event["payload"]["frame_ref"] == "s3://vigilante-frames/frames/cam01/frame.jpg"
+    assert event["payload"]["frame_uri"] == event["payload"]["frame_ref"]
+    assert event["payload"]["metadata"]["frame_object_key"] == "frames/cam01/frame.jpg"
+    assert event["payload"]["metadata"]["metadata_ref"] == "s3://vigilante-frames/frames/cam01/frame.json"
+    assert event["payload"]["metadata"]["storage_backend"] == "minio"
+
+
 def test_outbox_file_publisher_writes_jsonl(tmp_path) -> None:
     outbox = tmp_path / "outbox" / "frame_ingested.jsonl"
     publisher = OutboxFilePublisher(outbox, reset=True)

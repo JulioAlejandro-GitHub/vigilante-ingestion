@@ -3,5 +3,5 @@
 .venv/
 __pycache__/
 *.py[cod]
-outbox/
-storage/
+/outbox/
+/storage/

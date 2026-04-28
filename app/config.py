@@ -81,8 +81,8 @@ class IngestionConfig:
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
     minio_endpoint: str = "localhost:9000"
-    minio_access_key: str = "minioadmin"
-    minio_secret_key: str = "minioadmin"
+    minio_access_key: str = "minio"
+    minio_secret_key: str = "minio123"
     minio_bucket: str = "vigilante-frames"
     minio_secure: bool = False
     rabbitmq_host: str = "localhost"
@@ -103,8 +103,8 @@ class IngestionConfig:
             raise ValueError("capture_fps must be greater than zero")
         if self.max_frames is not None and self.max_frames <= 0:
             raise ValueError("max_frames must be greater than zero when provided")
-        if self.storage_backend not in {"local", "minio"}:
-            raise ValueError("storage_backend must be 'local' or 'minio'")
+        if self.storage_backend not in {"local", "minio", "s3"}:
+            raise ValueError("storage_backend must be 'local', 'minio' or 's3'")
         if self.publish_mode not in {"jsonl", "rabbitmq", "both"}:
             raise ValueError("publish_mode must be 'jsonl', 'rabbitmq' or 'both'")
         UUID(self.camera_id)
@@ -113,12 +113,19 @@ class IngestionConfig:
 def config_from_env() -> IngestionConfig:
     load_dotenv()
     max_frames = os.getenv("INGESTION_MAX_FRAMES")
+    storage_backend = os.getenv("INGESTION_STORAGE_BACKEND", "local")
+    remote_prefixes = ("INGESTION_S3", "INGESTION_MINIO") if storage_backend == "s3" else ("INGESTION_MINIO", "INGESTION_S3")
+
+    def remote_env(name: str, default: str) -> str:
+        primary, fallback = remote_prefixes
+        return os.getenv(f"{primary}_{name}", os.getenv(f"{fallback}_{name}", default))
+
     return IngestionConfig(
         source_file=Path(os.getenv("INGESTION_SOURCE_FILE", "samples/cam01.mp4")),
         camera_id=os.getenv("INGESTION_CAMERA_ID", "11111111-1111-1111-1111-111111111111"),
         capture_fps=float(os.getenv("INGESTION_FPS", "1")),
         max_frames=int(max_frames) if max_frames else None,
-        storage_backend=os.getenv("INGESTION_STORAGE_BACKEND", "local"),
+        storage_backend=storage_backend,
         local_storage_dir=Path(os.getenv("INGESTION_LOCAL_STORAGE_DIR", "storage")),
         publish_mode=os.getenv("INGESTION_PUBLISH_MODE", "jsonl"),
         outbox_path=Path(os.getenv("INGESTION_OUTBOX_PATH", "outbox/frame_ingested.jsonl")),
@@ -132,11 +139,11 @@ def config_from_env() -> IngestionConfig:
         instance_id=os.getenv("INGESTION_INSTANCE_ID", "local-replay"),
         ffmpeg_path=os.getenv("INGESTION_FFMPEG_PATH", "ffmpeg"),
         ffprobe_path=os.getenv("INGESTION_FFPROBE_PATH", "ffprobe"),
-        minio_endpoint=os.getenv("INGESTION_MINIO_ENDPOINT", "localhost:9000"),
-        minio_access_key=os.getenv("INGESTION_MINIO_ACCESS_KEY", "minioadmin"),
-        minio_secret_key=os.getenv("INGESTION_MINIO_SECRET_KEY", "minioadmin"),
-        minio_bucket=os.getenv("INGESTION_MINIO_BUCKET", "vigilante-frames"),
-        minio_secure=parse_bool(os.getenv("INGESTION_MINIO_SECURE"), default=False),
+        minio_endpoint=remote_env("ENDPOINT", "localhost:9000"),
+        minio_access_key=remote_env("ACCESS_KEY", "minio"),
+        minio_secret_key=remote_env("SECRET_KEY", "minio123"),
+        minio_bucket=remote_env("BUCKET", "vigilante-frames"),
+        minio_secure=parse_bool(remote_env("SECURE", "false"), default=False),
         rabbitmq_host=os.getenv("RABBITMQ_HOST", os.getenv("INGESTION_RABBITMQ_HOST", "localhost")),
         rabbitmq_port=int(os.getenv("RABBITMQ_PORT", os.getenv("INGESTION_RABBITMQ_PORT", "5672"))),
         rabbitmq_user=os.getenv("RABBITMQ_USER", os.getenv("INGESTION_RABBITMQ_USER", "guest")),

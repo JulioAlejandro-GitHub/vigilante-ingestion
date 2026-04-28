@@ -35,7 +35,7 @@ Copia `.env.example` a `.env` y ajusta:
 - `INGESTION_SOURCE_FILE`: MP4 local usado como cámara virtual.
 - `INGESTION_CAMERA_ID`: UUID canónico de `api.camera.camera_id`.
 - `INGESTION_FPS`: frecuencia de captura, por ejemplo `1`, `2` o `5`.
-- `INGESTION_STORAGE_BACKEND`: `local` o `minio`.
+- `INGESTION_STORAGE_BACKEND`: `local`, `minio` o `s3`.
 - `INGESTION_LOCAL_STORAGE_DIR`: raíz de almacenamiento local.
 - `INGESTION_PUBLISH_MODE`: `jsonl`, `rabbitmq` o `both`.
 - `INGESTION_OUTBOX_PATH`: archivo JSONL donde se publican eventos.
@@ -130,14 +130,26 @@ Configura:
 ```bash
 export INGESTION_STORAGE_BACKEND=minio
 export INGESTION_MINIO_ENDPOINT=localhost:9000
-export INGESTION_MINIO_ACCESS_KEY=minioadmin
-export INGESTION_MINIO_SECRET_KEY=minioadmin
+export INGESTION_MINIO_ACCESS_KEY=minio
+export INGESTION_MINIO_SECRET_KEY=minio123
 export INGESTION_MINIO_BUCKET=vigilante-frames
 ```
 
 El objeto usa el mismo `object_key` que el backend local y publica
-`frame_ref=s3://<bucket>/<object_key>`. La resolución de objetos MinIO desde
-recognition queda para el siguiente slice de integración.
+`frame_ref=s3://<bucket>/<object_key>` y `frame_uri` con el mismo valor. Ese URI
+lo resuelve `vigilante-recognition` leyendo bucket y key desde el esquema
+`s3://bucket/key` y descargando el frame a su cache local antes del pipeline de
+visión.
+
+Para un endpoint S3-compatible que no sea MinIO local puedes usar
+`INGESTION_STORAGE_BACKEND=s3` y los aliases `INGESTION_S3_ENDPOINT`,
+`INGESTION_S3_ACCESS_KEY`, `INGESTION_S3_SECRET_KEY`, `INGESTION_S3_BUCKET` y
+`INGESTION_S3_SECURE`. Con `storage_backend=s3`, esos aliases tienen prioridad;
+con `storage_backend=minio`, tienen prioridad las variables `INGESTION_MINIO_*`.
+
+El backend remoto guarda además un JSON de metadata con la misma key base del
+frame (`.json`) y metadata de objeto mínima: `camera-id`, `captured-at`,
+`object-key`, índices de sample/frame, `source-type` y `storage-backend`.
 
 ## Publicación
 
@@ -185,6 +197,34 @@ PYTHONPATH=. python -m app.main \
   --publish-mode both
 ```
 
+## Flujo local con MinIO/S3 compartido
+
+Levanta MinIO y RabbitMQ desde el stack de soporte:
+
+```bash
+docker compose -f ../vigilante-docs/docker/docker-compose.support.yml up -d minio rabbitmq
+```
+
+Publica frames en MinIO y eventos en JSONL:
+
+```bash
+PYTHONPATH=. python -m app.main \
+  --source-file samples/cam01.mp4 \
+  --camera-id 11111111-1111-1111-1111-111111111111 \
+  --fps 1 \
+  --max-frames 10 \
+  --storage-backend minio \
+  --minio-endpoint localhost:9000 \
+  --minio-access-key minio \
+  --minio-secret-key minio123 \
+  --minio-bucket vigilante-frames \
+  --publish-mode jsonl
+```
+
+El outbox resultante conserva el contrato `frame.ingested`: `payload.frame_ref`
+es el campo canónico y apunta a `s3://vigilante-frames/<object_key>`;
+`payload.frame_uri` queda como alias práctico resoluble con el mismo URI.
+
 ## Replay determinístico
 
 Con `INGESTION_REPLAY=true`, la misma combinación de:
@@ -208,10 +248,10 @@ La suite genera videos MP4 temporales con FFmpeg, valida metadata, extracción,
 storage local, construcción del evento `frame.ingested`, errores básicos y
 replay determinístico.
 
-## Pendiente Slice 4
+## Pendiente próximos slices
 
 - entrada RTSP real con proceso FFmpeg persistente
 - webcam local formal
-- resolución de `s3://` desde recognition o integración con `vigilante-media`
+- integración con `vigilante-media` encima de `frame_ref` / `frame_uri`
 - health events (`camera_offline`, `stream_frozen`, `stream_recovered`)
 - control de backpressure y métricas operativas

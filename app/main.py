@@ -14,6 +14,7 @@ from app.publisher.rabbitmq_publisher import RabbitMQFrameIngestedPublisher
 from app.runner.replay_runner import ReplayRunner
 from app.storage.local_storage import LocalFrameStorage
 from app.storage.minio_storage import MinioFrameStorage
+from app.storage.s3_storage import S3FrameStorage
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera-id", help="Canonical UUID from api.camera.camera_id.")
     parser.add_argument("--fps", type=float, help="Frame capture frequency.")
     parser.add_argument("--max-frames", type=int, help="Limit captured frames for tests or demos.")
-    parser.add_argument("--storage-backend", choices=["local", "minio"], help="Frame storage backend.")
+    parser.add_argument("--storage-backend", choices=["local", "minio", "s3"], help="Frame storage backend.")
     parser.add_argument("--output-dir", type=Path, help="Local storage root directory.")
     parser.add_argument("--publish-mode", choices=[mode.value for mode in PublishMode], help="Publication mode: jsonl, rabbitmq or both.")
     parser.add_argument("--outbox", type=Path, help="JSONL outbox path for frame.ingested events.")
@@ -119,7 +120,8 @@ def _merge_cli(config, args):
 def _build_storage(config):
     if config.storage_backend == "local":
         return LocalFrameStorage(config.local_storage_dir)
-    return MinioFrameStorage(
+    storage_class = S3FrameStorage if config.storage_backend == "s3" else MinioFrameStorage
+    return storage_class(
         endpoint=config.minio_endpoint,
         access_key=config.minio_access_key,
         secret_key=config.minio_secret_key,
