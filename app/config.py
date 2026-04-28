@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 from uuid import UUID
 
 
@@ -73,8 +74,15 @@ class IngestionConfig:
     external_camera_key: str | None = None
     organization_id: str | None = None
     site_id: str | None = None
-    source_type: str = "video_file"
+    source_type: str = "file_replay"
     source_name: str | None = None
+    rtsp_url: str | None = None
+    rtsp_transport: str = "tcp"
+    rtsp_read_timeout_seconds: float = 10.0
+    rtsp_reconnect_initial_delay_seconds: float = 1.0
+    rtsp_reconnect_max_delay_seconds: float = 30.0
+    rtsp_reconnect_backoff_multiplier: float = 2.0
+    rtsp_max_reconnect_attempts: int | None = None
     event_version: str = "1.0"
     component_version: str = "0.1.0"
     instance_id: str = "local-replay"
@@ -107,6 +115,26 @@ class IngestionConfig:
             raise ValueError("storage_backend must be 'local', 'minio' or 's3'")
         if self.publish_mode not in {"jsonl", "rabbitmq", "both"}:
             raise ValueError("publish_mode must be 'jsonl', 'rabbitmq' or 'both'")
+        if self.source_type not in {"file_replay", "video_file", "rtsp"}:
+            raise ValueError("source_type must be 'file_replay' or 'rtsp'")
+        if self.source_type == "rtsp":
+            if not self.rtsp_url:
+                raise ValueError("rtsp_url is required when source_type is 'rtsp'")
+            parsed = urlparse(self.rtsp_url)
+            if parsed.scheme not in {"rtsp", "rtsps"} or not parsed.netloc:
+                raise ValueError("rtsp_url must be a valid rtsp:// or rtsps:// URL")
+            if self.rtsp_transport not in {"tcp", "udp"}:
+                raise ValueError("rtsp_transport must be 'tcp' or 'udp'")
+            if self.rtsp_read_timeout_seconds <= 0:
+                raise ValueError("rtsp_read_timeout_seconds must be greater than zero")
+            if self.rtsp_reconnect_initial_delay_seconds < 0:
+                raise ValueError("rtsp_reconnect_initial_delay_seconds must not be negative")
+            if self.rtsp_reconnect_max_delay_seconds < self.rtsp_reconnect_initial_delay_seconds:
+                raise ValueError("rtsp_reconnect_max_delay_seconds must be greater than or equal to the initial delay")
+            if self.rtsp_reconnect_backoff_multiplier < 1:
+                raise ValueError("rtsp_reconnect_backoff_multiplier must be greater than or equal to one")
+            if self.rtsp_max_reconnect_attempts is not None and self.rtsp_max_reconnect_attempts < 0:
+                raise ValueError("rtsp_max_reconnect_attempts must not be negative")
         UUID(self.camera_id)
 
 
@@ -114,6 +142,9 @@ def config_from_env() -> IngestionConfig:
     load_dotenv()
     max_frames = os.getenv("INGESTION_MAX_FRAMES")
     storage_backend = os.getenv("INGESTION_STORAGE_BACKEND", "local")
+    source_type = os.getenv("INGESTION_SOURCE_TYPE", "file_replay")
+    replay_default = False if source_type == "rtsp" else True
+    rtsp_max_reconnect_attempts = os.getenv("INGESTION_RTSP_MAX_RECONNECT_ATTEMPTS")
     remote_prefixes = ("INGESTION_S3", "INGESTION_MINIO") if storage_backend == "s3" else ("INGESTION_MINIO", "INGESTION_S3")
 
     def remote_env(name: str, default: str) -> str:
@@ -130,12 +161,20 @@ def config_from_env() -> IngestionConfig:
         publish_mode=os.getenv("INGESTION_PUBLISH_MODE", "jsonl"),
         outbox_path=Path(os.getenv("INGESTION_OUTBOX_PATH", "outbox/frame_ingested.jsonl")),
         outbox_reset=parse_bool(os.getenv("INGESTION_OUTBOX_RESET"), default=True),
-        replay=parse_bool(os.getenv("INGESTION_REPLAY"), default=True),
+        replay=parse_bool(os.getenv("INGESTION_REPLAY"), default=replay_default),
         replay_start_at=parse_datetime(os.getenv("INGESTION_REPLAY_START_AT", DEFAULT_REPLAY_START_AT)),
         external_camera_key=os.getenv("INGESTION_EXTERNAL_CAMERA_KEY"),
         organization_id=os.getenv("INGESTION_ORGANIZATION_ID"),
         site_id=os.getenv("INGESTION_SITE_ID"),
+        source_type=source_type,
         source_name=os.getenv("INGESTION_SOURCE_NAME"),
+        rtsp_url=os.getenv("INGESTION_RTSP_URL"),
+        rtsp_transport=os.getenv("INGESTION_RTSP_TRANSPORT", "tcp"),
+        rtsp_read_timeout_seconds=float(os.getenv("INGESTION_RTSP_READ_TIMEOUT_SECONDS", "10")),
+        rtsp_reconnect_initial_delay_seconds=float(os.getenv("INGESTION_RTSP_RECONNECT_INITIAL_DELAY_SECONDS", "1")),
+        rtsp_reconnect_max_delay_seconds=float(os.getenv("INGESTION_RTSP_RECONNECT_MAX_DELAY_SECONDS", "30")),
+        rtsp_reconnect_backoff_multiplier=float(os.getenv("INGESTION_RTSP_RECONNECT_BACKOFF_MULTIPLIER", "2")),
+        rtsp_max_reconnect_attempts=int(rtsp_max_reconnect_attempts) if rtsp_max_reconnect_attempts else None,
         instance_id=os.getenv("INGESTION_INSTANCE_ID", "local-replay"),
         ffmpeg_path=os.getenv("INGESTION_FFMPEG_PATH", "ffmpeg"),
         ffprobe_path=os.getenv("INGESTION_FFPROBE_PATH", "ffprobe"),

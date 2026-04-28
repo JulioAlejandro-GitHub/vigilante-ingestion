@@ -2,17 +2,18 @@
 
 ## Objetivo
 
-Primer slice funcional de ingestion: leer un MP4 local como cámara virtual,
-muestrear frames a un FPS configurable, guardar evidencia mínima y emitir
-eventos `frame.ingested` consumibles por `vigilante-recognition`.
+Ingestion de frames desde dos tipos de fuente:
 
-Este slice prioriza replay local determinístico. RTSP productivo, cámaras reales
-y streaming sostenido quedan preparados conceptualmente, pero fuera del alcance
-de esta entrega.
+- `file_replay`: MP4 local como cámara virtual, con replay determinístico.
+- `rtsp`: stream RTSP real/vivo, con captura continua, timeout de lectura y
+  reconexión con backoff simple.
+
+Ambos modos muestrean frames a un FPS configurable, guardan evidencia mínima y
+emiten eventos `frame.ingested` consumibles por `vigilante-recognition`.
 
 ## Requisitos
 
-- Python 3.11+
+- Python 3.12+
 - FFmpeg y ffprobe disponibles en `PATH`
 - Entorno virtual local `.venv`
 
@@ -32,7 +33,11 @@ pip install -r requirements.txt
 
 Copia `.env.example` a `.env` y ajusta:
 
+- `INGESTION_SOURCE_TYPE`: `file_replay` o `rtsp`.
 - `INGESTION_SOURCE_FILE`: MP4 local usado como cámara virtual.
+- `INGESTION_RTSP_URL`: URL RTSP cuando `INGESTION_SOURCE_TYPE=rtsp`.
+- `INGESTION_RTSP_TRANSPORT`: `tcp` o `udp`, por defecto `tcp`.
+- `INGESTION_RTSP_READ_TIMEOUT_SECONDS`: segundos sin frames antes de reconectar.
 - `INGESTION_CAMERA_ID`: UUID canónico de `api.camera.camera_id`.
 - `INGESTION_FPS`: frecuencia de captura, por ejemplo `1`, `2` o `5`.
 - `INGESTION_STORAGE_BACKEND`: `local`, `minio` o `s3`.
@@ -40,7 +45,7 @@ Copia `.env.example` a `.env` y ajusta:
 - `INGESTION_PUBLISH_MODE`: `jsonl`, `rabbitmq` o `both`.
 - `INGESTION_OUTBOX_PATH`: archivo JSONL donde se publican eventos.
 - `INGESTION_MAX_FRAMES`: límite opcional para demos y tests.
-- `INGESTION_REPLAY`: `true` para timestamps determinísticos.
+- `INGESTION_REPLAY`: `true` para timestamps determinísticos en `file_replay`.
 - `INGESTION_REPLAY_START_AT`: base temporal del replay.
 - `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`,
   `RABBITMQ_VHOST`: conexión AMQP local.
@@ -64,18 +69,18 @@ mkdir -p samples
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc=size=320x180:rate=10 -t 12 -pix_fmt yuv420p samples/cam01.mp4
 ```
 
-## Ejecución
+## Ejecución MP4
 
 Comando local mínimo:
 
 ```bash
-PYTHONPATH=. python3 -m app.main --source-file samples/cam01.mp4 --camera-id <UUID_REAL> --fps 1 --max-frames 10
+PYTHONPATH=. python3 -m app.main --source-type file_replay --source-file samples/cam01.mp4 --camera-id <UUID_REAL> --fps 1 --max-frames 10
 ```
 
 Ejemplo con UUID de desarrollo:
 
 ```bash
-PYTHONPATH=. python3 -m app.main --source-file samples/cam01.mp4 --camera-id 11111111-1111-1111-1111-111111111111 --fps 1 --max-frames 3
+PYTHONPATH=. python3 -m app.main --source-type file_replay --source-file samples/cam01.mp4 --camera-id 11111111-1111-1111-1111-111111111111 --fps 1 --max-frames 3
 ```
 
 Salida esperada:
@@ -84,9 +89,60 @@ Salida esperada:
 - metadata JSON por frame junto al JPEG
 - eventos JSONL en `outbox/frame_ingested.jsonl`
 
+## Ejecución RTSP
+
+RTSP usa FFmpeg como proceso persistente, lee frames JPEG desde `image2pipe` y
+aplica el muestreo con el filtro `fps=<INGESTION_FPS>`. Si el stream no entrega
+frames dentro del timeout configurado, o FFmpeg termina, el runner cierra el
+proceso y reintenta con backoff.
+
+Ejemplo local con storage local y JSONL:
+
+```bash
+PYTHONPATH=. python -m app.main \
+  --source-type rtsp \
+  --rtsp-url rtsp://127.0.0.1:8554/cam01 \
+  --camera-id 11111111-1111-1111-1111-111111111111 \
+  --fps 1 \
+  --max-frames 20 \
+  --storage-backend local \
+  --publish-mode jsonl
+```
+
+Ejemplo con MinIO y RabbitMQ:
+
+```bash
+docker compose -f ../vigilante-docs/docker/docker-compose.support.yml up -d minio rabbitmq
+
+PYTHONPATH=. python -m app.main \
+  --source-type rtsp \
+  --rtsp-url rtsp://127.0.0.1:8554/cam01 \
+  --camera-id 11111111-1111-1111-1111-111111111111 \
+  --fps 1 \
+  --max-frames 20 \
+  --storage-backend minio \
+  --minio-endpoint localhost:9000 \
+  --minio-access-key minio \
+  --minio-secret-key minio123 \
+  --minio-bucket vigilante-frames \
+  --publish-mode rabbitmq
+```
+
+Variables RTSP útiles:
+
+- `INGESTION_RTSP_READ_TIMEOUT_SECONDS`: timeout sin frames.
+- `INGESTION_RTSP_RECONNECT_INITIAL_DELAY_SECONDS`: primer backoff.
+- `INGESTION_RTSP_RECONNECT_MAX_DELAY_SECONDS`: techo del backoff.
+- `INGESTION_RTSP_RECONNECT_BACKOFF_MULTIPLIER`: multiplicador.
+- `INGESTION_RTSP_MAX_RECONNECT_ATTEMPTS`: vacío para reintentar indefinidamente.
+
+`payload.source_type` queda como `rtsp`. La URL publicada en metadata se guarda
+sin contraseña (`rtsp://user:***@host/...`) para evitar filtrar credenciales en
+JSONL, logs o metadata de storage.
+
 ## Contrato emitido
 
-Por cada frame se emite `frame.ingested` con:
+Por cada frame, sea MP4 o RTSP, se emite `frame.ingested` con:
 
 - `event_id`
 - `event_type = frame.ingested`
@@ -179,6 +235,7 @@ Publicación local a RabbitMQ:
 docker compose -f ../vigilante-docs/docker/docker-compose.support.yml up -d rabbitmq
 
 PYTHONPATH=. python -m app.main \
+  --source-type file_replay \
   --source-file samples/cam01.mp4 \
   --camera-id 11111111-1111-1111-1111-111111111111 \
   --fps 1 \
@@ -190,6 +247,7 @@ Para conservar el artefacto reproducible y además probar el broker:
 
 ```bash
 PYTHONPATH=. python -m app.main \
+  --source-type file_replay \
   --source-file samples/cam01.mp4 \
   --camera-id 11111111-1111-1111-1111-111111111111 \
   --fps 1 \
@@ -209,6 +267,7 @@ Publica frames en MinIO y eventos en JSONL:
 
 ```bash
 PYTHONPATH=. python -m app.main \
+  --source-type file_replay \
   --source-file samples/cam01.mp4 \
   --camera-id 11111111-1111-1111-1111-111111111111 \
   --fps 1 \
@@ -227,7 +286,7 @@ es el campo canónico y apunta a `s3://vigilante-frames/<object_key>`;
 
 ## Replay determinístico
 
-Con `INGESTION_REPLAY=true`, la misma combinación de:
+Con `INGESTION_REPLAY=true` en modo `file_replay`, la misma combinación de:
 
 - source file
 - camera_id
@@ -245,12 +304,12 @@ PYTHONPATH=. pytest
 ```
 
 La suite genera videos MP4 temporales con FFmpeg, valida metadata, extracción,
-storage local, construcción del evento `frame.ingested`, errores básicos y
-replay determinístico.
+storage local, construcción del evento `frame.ingested`, errores básicos,
+replay determinístico y RTSP con readers/sources simulados para timeout y
+reconexión.
 
 ## Pendiente próximos slices
 
-- entrada RTSP real con proceso FFmpeg persistente
 - webcam local formal
 - integración con `vigilante-media` encima de `frame_ref` / `frame_uri`
 - health events (`camera_offline`, `stream_frozen`, `stream_recovered`)
