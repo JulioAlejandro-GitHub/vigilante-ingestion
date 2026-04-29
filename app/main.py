@@ -13,6 +13,7 @@ from app.publisher.publish_mode import CompositePublisher, PublishMode
 from app.publisher.rabbitmq_publisher import RabbitMQFrameIngestedPublisher
 from app.runner.replay_runner import ReplayRunner
 from app.runner.rtsp_runner import RtspRunner
+from app.services.camera_config_service import apply_camera_database_config
 from app.storage.local_storage import LocalFrameStorage
 from app.storage.minio_storage import MinioFrameStorage
 from app.storage.s3_storage import S3FrameStorage
@@ -22,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        config = _merge_cli(config_from_env(), args)
+        config = apply_camera_database_config(_merge_cli(config_from_env(), args))
         logging.basicConfig(level=getattr(logging, config.log_level.upper(), logging.INFO))
         storage = _build_storage(config)
         publisher = _build_publisher(config)
@@ -42,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-file", type=Path, help="Local MP4 file to replay.")
     parser.add_argument("--rtsp-url", help="RTSP input URL, e.g. rtsp://127.0.0.1:8554/cam01.")
     parser.add_argument("--rtsp-transport", choices=["tcp", "udp"], help="RTSP transport for FFmpeg.")
+    parser.add_argument("--camera-db-url", help="PostgreSQL URL used to load structured RTSP config from api.camera.")
+    parser.add_argument("--camera-db-schema", help="Schema that contains api.camera, default api.")
     parser.add_argument("--rtsp-read-timeout-seconds", type=float, help="Seconds without a frame before reconnecting.")
     parser.add_argument("--rtsp-reconnect-initial-delay-seconds", type=float, help="Initial reconnect backoff in seconds.")
     parser.add_argument("--rtsp-reconnect-max-delay-seconds", type=float, help="Maximum reconnect backoff in seconds.")
@@ -84,6 +87,8 @@ def _merge_cli(config, args):
         "source_type": args.source_type,
         "rtsp_url": args.rtsp_url,
         "rtsp_transport": args.rtsp_transport,
+        "camera_config_db_url": args.camera_db_url,
+        "camera_config_db_schema": args.camera_db_schema,
         "rtsp_read_timeout_seconds": args.rtsp_read_timeout_seconds,
         "rtsp_reconnect_initial_delay_seconds": args.rtsp_reconnect_initial_delay_seconds,
         "rtsp_reconnect_max_delay_seconds": args.rtsp_reconnect_max_delay_seconds,

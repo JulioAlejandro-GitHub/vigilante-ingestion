@@ -4,6 +4,7 @@ import json
 from datetime import timezone
 from pathlib import Path
 
+from app.capture.rtsp_source import mask_rtsp_credentials
 from app.config import format_datetime
 from app.models.frame import CapturedFrame, StoredFrame
 
@@ -68,7 +69,7 @@ def build_frame_metadata(
         "source_fps": frame.source_fps,
         "source_timestamp_seconds": frame.source_timestamp_seconds,
         "source_type": frame.source_type,
-        "source_uri": frame.source_uri,
+        "source_uri": mask_rtsp_credentials(frame.source_uri),
         "width": frame.width,
     }
     if storage_backend:

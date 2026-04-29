@@ -78,6 +78,9 @@ class IngestionConfig:
     source_name: str | None = None
     rtsp_url: str | None = None
     rtsp_transport: str = "tcp"
+    camera_config_db_url: str | None = None
+    camera_config_db_schema: str = "api"
+    camera_secret_fernet_key: str | None = None
     rtsp_read_timeout_seconds: float = 10.0
     rtsp_reconnect_initial_delay_seconds: float = 1.0
     rtsp_reconnect_max_delay_seconds: float = 30.0
@@ -118,11 +121,12 @@ class IngestionConfig:
         if self.source_type not in {"file_replay", "video_file", "rtsp"}:
             raise ValueError("source_type must be 'file_replay' or 'rtsp'")
         if self.source_type == "rtsp":
-            if not self.rtsp_url:
-                raise ValueError("rtsp_url is required when source_type is 'rtsp'")
-            parsed = urlparse(self.rtsp_url)
-            if parsed.scheme not in {"rtsp", "rtsps"} or not parsed.netloc:
-                raise ValueError("rtsp_url must be a valid rtsp:// or rtsps:// URL")
+            if not self.rtsp_url and not self.camera_config_db_url:
+                raise ValueError("rtsp_url or camera_config_db_url is required when source_type is 'rtsp'")
+            if self.rtsp_url:
+                parsed = urlparse(self.rtsp_url)
+                if parsed.scheme not in {"rtsp", "rtsps"} or not parsed.netloc:
+                    raise ValueError("rtsp_url must be a valid rtsp:// or rtsps:// URL")
             if self.rtsp_transport not in {"tcp", "udp"}:
                 raise ValueError("rtsp_transport must be 'tcp' or 'udp'")
             if self.rtsp_read_timeout_seconds <= 0:
@@ -170,6 +174,9 @@ def config_from_env() -> IngestionConfig:
         source_name=os.getenv("INGESTION_SOURCE_NAME"),
         rtsp_url=os.getenv("INGESTION_RTSP_URL"),
         rtsp_transport=os.getenv("INGESTION_RTSP_TRANSPORT", "tcp"),
+        camera_config_db_url=_camera_config_db_url_from_env(),
+        camera_config_db_schema=os.getenv("INGESTION_CAMERA_DB_SCHEMA", os.getenv("DB_SCHEMA_API", "api")),
+        camera_secret_fernet_key=os.getenv("CAMERA_SECRET_FERNET_KEY"),
         rtsp_read_timeout_seconds=float(os.getenv("INGESTION_RTSP_READ_TIMEOUT_SECONDS", "10")),
         rtsp_reconnect_initial_delay_seconds=float(os.getenv("INGESTION_RTSP_RECONNECT_INITIAL_DELAY_SECONDS", "1")),
         rtsp_reconnect_max_delay_seconds=float(os.getenv("INGESTION_RTSP_RECONNECT_MAX_DELAY_SECONDS", "30")),
@@ -196,3 +203,20 @@ def config_from_env() -> IngestionConfig:
         rabbitmq_frame_dlq_routing_key=os.getenv("RABBITMQ_FRAME_DLQ_ROUTING_KEY", "frame.ingested.dlq"),
         log_level=os.getenv("INGESTION_LOG_LEVEL", "INFO"),
     )
+
+
+def _camera_config_db_url_from_env() -> str | None:
+    explicit = os.getenv("INGESTION_CAMERA_DB_URL")
+    if explicit:
+        return explicit
+    db_url = os.getenv("DB_URL")
+    if db_url:
+        return db_url
+    host = os.getenv("INGESTION_CAMERA_DB_HOST")
+    if not host:
+        return None
+    port = os.getenv("INGESTION_CAMERA_DB_PORT", "5432")
+    name = os.getenv("INGESTION_CAMERA_DB_NAME", "vigilante_api")
+    user = os.getenv("INGESTION_CAMERA_DB_USER", "julio")
+    password = os.getenv("INGESTION_CAMERA_DB_PASSWORD", "")
+    return f"postgresql://{user}:{password}@{host}:{port}/{name}"

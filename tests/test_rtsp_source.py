@@ -6,7 +6,7 @@ import pytest
 
 from app.config import IngestionConfig
 from app.capture.rtsp_source import InvalidRtspUrl, RtspSource, mask_rtsp_credentials, read_jpeg_dimensions
-from app.capture.stream_reader import StreamReadTimeout
+from app.capture.stream_reader import StreamReadTimeout, mask_rtsp_credentials_in_text
 
 
 CAMERA_ID = "11111111-1111-1111-1111-111111111111"
@@ -50,6 +50,15 @@ def test_rtsp_source_masks_credentials_in_frame_metadata() -> None:
     assert mask_rtsp_credentials("rtsp://user:secret@camera.local/stream") == "rtsp://user:***@camera.local/stream"
 
 
+def test_stream_error_text_masks_rtsp_credentials() -> None:
+    text = "Input error for rtsp://user:secret@camera.local:554/stream"
+
+    masked = mask_rtsp_credentials_in_text(text)
+
+    assert masked == "Input error for rtsp://user:***@camera.local:554/stream"
+    assert "secret" not in masked
+
+
 def test_rtsp_source_rejects_invalid_url() -> None:
     with pytest.raises(InvalidRtspUrl):
         RtspSource(rtsp_url="http://127.0.0.1/live", camera_id=CAMERA_ID, capture_fps=1)
@@ -70,13 +79,25 @@ def test_ingestion_config_accepts_rtsp_source() -> None:
 
 
 def test_ingestion_config_rejects_rtsp_without_url() -> None:
-    with pytest.raises(ValueError, match="rtsp_url is required"):
+    with pytest.raises(ValueError, match="rtsp_url or camera_config_db_url is required"):
         IngestionConfig(
             source_file="samples/cam01.mp4",
             source_type="rtsp",
             rtsp_url=None,
             camera_id=CAMERA_ID,
         )
+
+
+def test_ingestion_config_accepts_rtsp_with_camera_database_config() -> None:
+    config = IngestionConfig(
+        source_file="samples/cam01.mp4",
+        source_type="rtsp",
+        rtsp_url=None,
+        camera_config_db_url="postgresql://localhost/vigilante_api",
+        camera_id=CAMERA_ID,
+    )
+
+    assert config.camera_config_db_url == "postgresql://localhost/vigilante_api"
 
 
 def test_rtsp_source_propagates_read_timeout_for_runner_reconnect() -> None:

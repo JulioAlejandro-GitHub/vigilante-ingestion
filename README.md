@@ -35,8 +35,12 @@ Copia `.env.example` a `.env` y ajusta:
 
 - `INGESTION_SOURCE_TYPE`: `file_replay` o `rtsp`.
 - `INGESTION_SOURCE_FILE`: MP4 local usado como cámara virtual.
-- `INGESTION_RTSP_URL`: URL RTSP cuando `INGESTION_SOURCE_TYPE=rtsp`.
+- `INGESTION_RTSP_URL`: URL RTSP cuando no se use configuración desde `api.camera`.
 - `INGESTION_RTSP_TRANSPORT`: `tcp` o `udp`, por defecto `tcp`.
+- `INGESTION_CAMERA_DB_URL`: conexión a `vigilante_api` para leer `api.camera`.
+- `INGESTION_CAMERA_DB_SCHEMA`: schema donde está `camera`, por defecto `api`.
+- `CAMERA_SECRET_FERNET_KEY`: clave Fernet compartida con `vigilante-api` para
+  descifrar `camera_secret`.
 - `INGESTION_RTSP_READ_TIMEOUT_SECONDS`: segundos sin frames antes de reconectar.
 - `INGESTION_CAMERA_ID`: UUID canónico de `api.camera.camera_id`.
 - `INGESTION_FPS`: frecuencia de captura, por ejemplo `1`, `2` o `5`.
@@ -96,6 +100,14 @@ aplica el muestreo con el filtro `fps=<INGESTION_FPS>`. Si el stream no entrega
 frames dentro del timeout configurado, o FFmpeg termina, el runner cierra el
 proceso y reintenta con backoff.
 
+La fuente primaria para RTSP es ahora `api.camera`. Si `INGESTION_CAMERA_DB_URL`
+está configurado, ingestion busca la fila por `INGESTION_CAMERA_ID`, toma las
+columnas estructuradas `source_type`, `camera_hostname`, `camera_port`,
+`camera_path`, `rtsp_transport`, `channel`, `subtype`, `camera_user` y
+`camera_secret`, descifra el secreto en runtime y construye la URL solo para
+FFmpeg. `metadata` queda como fallback temporal; `metadata.stream_url` solo se
+usa como último recurso para derivar campos faltantes.
+
 Ejemplo local con storage local y JSONL:
 
 ```bash
@@ -107,6 +119,18 @@ PYTHONPATH=. python -m app.main \
   --max-frames 20 \
   --storage-backend local \
   --publish-mode jsonl
+```
+
+Ejemplo usando `api.camera` como fuente:
+
+```bash
+export INGESTION_SOURCE_TYPE=rtsp
+export INGESTION_CAMERA_ID=<UUID_REAL_API_CAMERA>
+export INGESTION_CAMERA_DB_URL=postgresql://julio@localhost:5432/vigilante_api
+export INGESTION_CAMERA_DB_SCHEMA=api
+export CAMERA_SECRET_FERNET_KEY=<fernet-key>
+
+PYTHONPATH=. python -m app.main --fps 1 --max-frames 20 --storage-backend local --publish-mode jsonl
 ```
 
 Ejemplo con MinIO y RabbitMQ:
@@ -136,9 +160,16 @@ Variables RTSP útiles:
 - `INGESTION_RTSP_RECONNECT_BACKOFF_MULTIPLIER`: multiplicador.
 - `INGESTION_RTSP_MAX_RECONNECT_ATTEMPTS`: vacío para reintentar indefinidamente.
 
-`payload.source_type` queda como `rtsp`. La URL publicada en metadata se guarda
-sin contraseña (`rtsp://user:***@host/...`) para evitar filtrar credenciales en
-JSONL, logs o metadata de storage.
+`payload.source_type` queda como `rtsp`. La URL publicada en metadata y logs se
+guarda sin contraseña (`rtsp://user:***@host/...`) para evitar filtrar
+credenciales en JSONL, RabbitMQ, storage metadata o mensajes de error. La URL
+con secreto visible existe solo en memoria para abrir FFmpeg.
+
+Para generar una clave local Fernet:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
 
 ## Contrato emitido
 

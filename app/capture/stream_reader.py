@@ -6,6 +6,7 @@ import select
 import subprocess
 import time
 from typing import Protocol
+from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,28 @@ class FfmpegMjpegStreamReader:
         if process is None or process.stderr is None:
             return ""
         try:
-            return process.stderr.read().decode("utf-8", errors="replace").strip()
+            return mask_rtsp_credentials_in_text(process.stderr.read().decode("utf-8", errors="replace").strip())
         except Exception:
             return ""
+
+
+def mask_rtsp_credentials_in_text(text: str) -> str:
+    words = text.split()
+    if not words:
+        return text
+    return " ".join(_mask_rtsp_credentials(word) for word in words)
+
+
+def _mask_rtsp_credentials(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"rtsp", "rtsps"} or parsed.password is None:
+        return value
+
+    host = parsed.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    username = parsed.username or ""
+    netloc = f"{username}:***@{host}" if username else host
+    return urlunparse(parsed._replace(netloc=netloc))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -99,17 +100,35 @@ def test_rtsp_runner_uses_existing_local_storage_and_jsonl_contract(tmp_path) ->
     assert event["payload"]["metadata"]["source_uri"] == "rtsp://127.0.0.1:8554/cam01"
 
 
+def test_rtsp_runner_masks_secret_in_logs(caplog) -> None:
+    caplog.set_level(logging.INFO)
+    runner = RtspRunner(
+        config=_config(max_frames=1, rtsp_url="rtsp://admin:admin123@camera.local:554/live"),
+        storage=_FakeStorage(),
+        publisher=_FakePublisher(),
+        source_factory=lambda: _FakeRtspSource(frame_count=1),
+        sleep=lambda _: None,
+    )
+
+    runner.run()
+
+    log_text = caplog.text
+    assert "rtsp://admin:***@camera.local:554/live" in log_text
+    assert "admin123" not in log_text
+
+
 def _config(
     *,
     max_frames: int,
     local_storage_dir: Path | None = None,
     outbox_path: Path | None = None,
     max_reconnect_attempts: int | None = None,
+    rtsp_url: str = "rtsp://127.0.0.1:8554/cam01",
 ) -> IngestionConfig:
     return IngestionConfig(
         source_file=Path("samples/cam01.mp4"),
         source_type="rtsp",
-        rtsp_url="rtsp://127.0.0.1:8554/cam01",
+        rtsp_url=rtsp_url,
         camera_id=CAMERA_ID,
         capture_fps=1,
         max_frames=max_frames,

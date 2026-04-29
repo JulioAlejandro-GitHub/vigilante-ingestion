@@ -74,6 +74,29 @@ def test_build_frame_ingested_event_preserves_remote_s3_frame_uri() -> None:
     assert event["payload"]["metadata"]["storage_backend"] == "minio"
 
 
+def test_build_frame_ingested_event_masks_rtsp_secret_if_frame_uri_is_raw() -> None:
+    frame = _frame(
+        camera_id=CAMERA_ID,
+        source_type="rtsp",
+        source_uri="rtsp://admin:admin123@camera.local:554/live",
+    )
+    stored = StoredFrame(
+        frame_ref="s3://vigilante-frames/frames/cam01/frame.jpg",
+        frame_uri="s3://vigilante-frames/frames/cam01/frame.jpg",
+        object_key="frames/cam01/frame.jpg",
+        metadata_ref="s3://vigilante-frames/frames/cam01/frame.json",
+        storage_backend="minio",
+        content_type="image/jpeg",
+        size_bytes=len(frame.image_bytes),
+    )
+    config = IngestionConfig(source_file=Path("samples/cam01.mp4"), camera_id=CAMERA_ID, source_type="rtsp", rtsp_url=frame.source_uri)
+
+    event = build_frame_ingested_event(frame=frame, stored_frame=stored, config=config)
+
+    assert event["payload"]["metadata"]["source_uri"] == "rtsp://admin:***@camera.local:554/live"
+    assert "admin123" not in str(event)
+
+
 def test_outbox_file_publisher_writes_jsonl(tmp_path) -> None:
     outbox = tmp_path / "outbox" / "frame_ingested.jsonl"
     publisher = OutboxFilePublisher(outbox, reset=True)
@@ -132,16 +155,21 @@ def test_publish_mode_parser_and_publisher_selection(tmp_path) -> None:
     assert isinstance(_build_publisher(both_config), CompositePublisher)
 
 
-def _frame() -> CapturedFrame:
+def _frame(
+    *,
+    camera_id: str = CAMERA_ID,
+    source_type: str = "video_file",
+    source_uri: str = "samples/cam01.mp4",
+) -> CapturedFrame:
     return CapturedFrame(
         image_bytes=b"\xff\xd8test-jpeg\xff\xd9",
-        camera_id=CAMERA_ID,
+        camera_id=camera_id,
         captured_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         width=160,
         height=90,
         content_type="image/jpeg",
-        source_type="video_file",
-        source_uri="samples/cam01.mp4",
+        source_type=source_type,
+        source_uri=source_uri,
         source_timestamp_seconds=0,
         source_frame_index=0,
         sample_index=0,

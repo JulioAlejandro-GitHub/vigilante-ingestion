@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from app.capture.rtsp_source import mask_rtsp_credentials
 from app.config import IngestionConfig, format_datetime
 from app.models.frame import CapturedFrame, StoredFrame
 
@@ -31,9 +32,10 @@ def build_frame_ingested_event(
     UUID(frame.camera_id)
     captured_at = format_datetime(frame.captured_at)
     event_id = _deterministic_event_id(frame)
+    safe_source_uri = mask_rtsp_credentials(frame.source_uri)
     idempotency_key = (
         f"frame:{frame.camera_id}:"
-        f"{frame.source_type}:{Path(frame.source_uri).name}:"
+        f"{frame.source_type}:{Path(safe_source_uri).name}:"
         f"{frame.capture_fps:g}:{frame.sample_index}:{frame.source_frame_index}"
     )
 
@@ -63,7 +65,7 @@ def build_frame_ingested_event(
             "source_frame_index": frame.source_frame_index,
             "source_fps": frame.source_fps,
             "source_timestamp_seconds": frame.source_timestamp_seconds,
-            "source_uri": frame.source_uri,
+            "source_uri": safe_source_uri,
             "storage_backend": stored_frame.storage_backend,
         },
         "quality_metadata": {
@@ -95,10 +97,10 @@ def build_frame_ingested_event(
 
 
 def _deterministic_event_id(frame: CapturedFrame) -> str:
+    safe_source_uri = mask_rtsp_credentials(frame.source_uri)
     seed = (
-        f"{frame.camera_id}|{frame.source_type}|{Path(frame.source_uri).name}|"
+        f"{frame.camera_id}|{frame.source_type}|{Path(safe_source_uri).name}|"
         f"{frame.capture_fps:g}|{frame.sample_index}|{frame.source_frame_index}|"
         f"{frame.source_timestamp_seconds:.6f}"
     )
     return f"evt_{uuid5(NAMESPACE_URL, seed)}"
-
