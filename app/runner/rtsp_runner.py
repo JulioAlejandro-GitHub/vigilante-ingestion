@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
-from typing import Callable
+from dataclasses import asdict, dataclass
+from typing import Any, Callable
 
 from app.capture.reconnect_policy import ReconnectPolicy
 from app.capture.rtsp_source import JpegMetadataError, RtspSource, mask_rtsp_credentials
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 RtspSourceFactory = Callable[[], object]
 Sleeper = Callable[[float], None]
+RtspLifecycleCallback = Callable[[str, dict[str, Any]], None]
 RTSP_RECOVERABLE_ERRORS = (StreamOpenError, StreamReadError, JpegMetadataError)
 
 
@@ -56,12 +57,14 @@ class RtspRunner:
         publisher: FrameIngestedPublisher,
         source_factory: RtspSourceFactory | None = None,
         sleep: Sleeper = time.sleep,
+        lifecycle_callback: RtspLifecycleCallback | None = None,
     ) -> None:
         self.config = config
         self.storage = storage
         self.publisher = publisher
         self.source_factory = source_factory
         self.sleep = sleep
+        self.lifecycle_callback = lifecycle_callback
         self.safe_rtsp_url = mask_rtsp_credentials(config.rtsp_url or "")
 
     def run(self) -> RtspResult:
@@ -85,6 +88,12 @@ class RtspRunner:
                     counters.stream_opens,
                     remaining if remaining is not None else "unbounded",
                 )
+                self._emit_lifecycle(
+                    "camera_stream_starting",
+                    counters,
+                    attempt=counters.stream_opens,
+                    max_frames_remaining=remaining,
+                )
                 try:
                     for frame in source.iter_frames(
                         max_frames=remaining,
@@ -96,6 +105,11 @@ class RtspRunner:
                                 "rtsp_stream_connected url=%s stream_open_count=%s",
                                 self.safe_rtsp_url,
                                 counters.stream_opens,
+                            )
+                            self._emit_lifecycle(
+                                "camera_stream_connected",
+                                counters,
+                                stream_open_count=counters.stream_opens,
                             )
 
                         stored_frame = self._save_frame(frame, counters)
@@ -113,6 +127,12 @@ class RtspRunner:
                             frame.sample_index,
                             stored_frame.frame_ref,
                         )
+                        self._emit_lifecycle(
+                            "camera_frame_ingested",
+                            counters,
+                            sample_index=frame.sample_index,
+                            frame_ref=stored_frame.frame_ref,
+                        )
 
                     if self._should_continue(counters):
                         raise StreamReadError("RTSP stream ended before max_frames was reached")
@@ -124,6 +144,13 @@ class RtspRunner:
                         type(exc).__name__,
                         exc,
                         stream_frames,
+                    )
+                    self._emit_lifecycle(
+                        "camera_stream_disconnected",
+                        counters,
+                        error_type=type(exc).__name__,
+                        error=str(exc),
+                        frames_in_stream=stream_frames,
                     )
                     if not reconnect_policy.can_retry():
                         logger.error(
@@ -140,11 +167,18 @@ class RtspRunner:
                         counters.reconnect_attempts,
                         delay,
                     )
+                    self._emit_lifecycle(
+                        "camera_stream_reconnect_scheduled",
+                        counters,
+                        attempt=counters.reconnect_attempts,
+                        delay_seconds=delay,
+                    )
                     self.sleep(delay)
         finally:
             close = getattr(self.publisher, "close", None)
             if callable(close):
                 close()
+            self._emit_lifecycle("camera_worker_stopped", counters)
 
         logger.info(
             "rtsp_ingestion_summary url=%s frames_captured=%s events_published=%s stream_opens=%s "
@@ -203,6 +237,13 @@ class RtspRunner:
                 frame.sample_index,
                 type(exc).__name__,
             )
+            self._emit_lifecycle(
+                "camera_frame_store_failed",
+                counters,
+                sample_index=frame.sample_index,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             raise
         counters.frames_stored += 1
         return stored_frame
@@ -217,9 +258,57 @@ class RtspRunner:
                 event.get("event_id"),
                 type(exc).__name__,
             )
+            self._emit_lifecycle(
+                "camera_frame_publish_failed",
+                counters,
+                event_id=event.get("event_id"),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             raise
         counters.events_published += 1
         logger.info("rtsp_frame_published event_id=%s", event.get("event_id"))
+
+    def _emit_lifecycle(self, event_name: str, counters: RtspCounters, **payload: Any) -> None:
+        event_payload: dict[str, Any] = {
+            "camera_id": self.config.camera_id,
+            "external_camera_key": self.config.external_camera_key,
+            "site_id": self.config.site_id,
+            "zone_id": self.config.zone_id,
+            "safe_rtsp_url": self.safe_rtsp_url,
+            "counters": asdict(counters),
+            **payload,
+        }
+        if event_name in {
+            "camera_stream_starting",
+            "camera_stream_connected",
+            "camera_stream_disconnected",
+            "camera_stream_reconnect_scheduled",
+            "camera_frame_ingested",
+            "camera_worker_stopped",
+        }:
+            logger.info(
+                "%s camera_id=%s external_camera_key=%s site_id=%s zone_id=%s stream_opens=%s "
+                "reconnect_attempts=%s frames_captured=%s events_published=%s",
+                event_name,
+                self.config.camera_id,
+                self.config.external_camera_key or "",
+                self.config.site_id or "",
+                self.config.zone_id or "",
+                counters.stream_opens,
+                counters.reconnect_attempts,
+                counters.frames_captured,
+                counters.events_published,
+            )
+        if self.lifecycle_callback is not None:
+            try:
+                self.lifecycle_callback(event_name, event_payload)
+            except Exception:
+                logger.exception(
+                    "rtsp_lifecycle_callback_failed event_name=%s camera_id=%s",
+                    event_name,
+                    self.config.camera_id,
+                )
 
 
 def _destinations(publish_mode: str) -> tuple[str, ...]:

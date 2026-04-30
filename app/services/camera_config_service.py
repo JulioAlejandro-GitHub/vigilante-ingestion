@@ -24,7 +24,7 @@ def apply_camera_database_config(config: IngestionConfig, *, row_fetcher: Camera
     if row is None:
         raise CameraConfigLookupError(f"api.camera row not found for camera_id={config.camera_id}")
 
-    rtsp = build_rtsp_url_from_camera_config(_row_to_rtsp_camera_config(row), camera_secret_fernet_key=config.camera_secret_fernet_key)
+    rtsp = build_rtsp_url_from_camera_config(row_to_rtsp_camera_config(row), camera_secret_fernet_key=config.camera_secret_fernet_key)
     return replace(
         config,
         rtsp_url=rtsp.url,
@@ -32,6 +32,8 @@ def apply_camera_database_config(config: IngestionConfig, *, row_fetcher: Camera
         source_type=rtsp.source_type,
         external_camera_key=config.external_camera_key or _optional_text(row.get("external_camera_key")),
         site_id=config.site_id or _optional_text(row.get("site_id")),
+        zone_id=config.zone_id or _optional_text(row.get("zone_id")),
+        source_name=config.source_name or _optional_text(row.get("name")),
     )
 
 
@@ -49,6 +51,9 @@ def fetch_camera_row(config: IngestionConfig) -> dict[str, Any] | None:
             camera_id,
             external_camera_key,
             site_id,
+            zone_id,
+            name,
+            is_active,
             source_type,
             camera_hostname,
             camera_port,
@@ -68,7 +73,7 @@ def fetch_camera_row(config: IngestionConfig) -> dict[str, Any] | None:
             return cursor.fetchone()
 
 
-def _row_to_rtsp_camera_config(row: dict[str, Any]) -> RtspCameraConfig:
+def row_to_rtsp_camera_config(row: dict[str, Any]) -> RtspCameraConfig:
     return RtspCameraConfig(
         source_type=_optional_text(row.get("source_type")),
         camera_hostname=_optional_text(row.get("camera_hostname")),

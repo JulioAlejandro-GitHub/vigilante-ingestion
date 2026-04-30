@@ -11,6 +11,7 @@ from app.messaging.topology import FrameIngestedTopology
 from app.publisher.frame_ingested_publisher import OutboxFilePublisher
 from app.publisher.publish_mode import CompositePublisher, PublishMode
 from app.publisher.rabbitmq_publisher import RabbitMQFrameIngestedPublisher
+from app.runner.active_camera_supervisor import ActiveCameraSupervisor
 from app.runner.replay_runner import ReplayRunner
 from app.runner.rtsp_runner import RtspRunner
 from app.services.camera_config_service import apply_camera_database_config
@@ -25,9 +26,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = apply_camera_database_config(_merge_cli(config_from_env(), args))
         logging.basicConfig(level=getattr(logging, config.log_level.upper(), logging.INFO))
-        storage = _build_storage(config)
-        publisher = _build_publisher(config)
-        runner = _build_runner(config=config, storage=storage, publisher=publisher)
+        if config.source_type == "active_cameras":
+            runner = _build_runner(config=config)
+        else:
+            storage = _build_storage(config)
+            publisher = _build_publisher(config)
+            runner = _build_runner(config=config, storage=storage, publisher=publisher)
         result = runner.run()
     except Exception as exc:
         print(f"ingestion failed: {exc}", file=sys.stderr)
@@ -38,13 +42,17 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Ingest sampled frames from a local MP4 replay or an RTSP stream.")
-    parser.add_argument("--source-type", choices=["file_replay", "video_file", "rtsp"], help="Input source type.")
+    parser = argparse.ArgumentParser(description="Ingest sampled frames from a local MP4 replay, one RTSP stream, or active RTSP cameras.")
+    parser.add_argument("--source-type", choices=["file_replay", "video_file", "rtsp", "active_cameras"], help="Input source type.")
+    parser.add_argument("--active-cameras", action="store_true", help="Run the active RTSP camera supervisor.")
     parser.add_argument("--source-file", type=Path, help="Local MP4 file to replay.")
     parser.add_argument("--rtsp-url", help="RTSP input URL, e.g. rtsp://127.0.0.1:8554/cam01.")
     parser.add_argument("--rtsp-transport", choices=["tcp", "udp"], help="RTSP transport for FFmpeg.")
     parser.add_argument("--camera-db-url", help="PostgreSQL URL used to load structured RTSP config from api.camera.")
     parser.add_argument("--camera-db-schema", help="Schema that contains api.camera, default api.")
+    parser.add_argument("--active-camera-source", choices=["db"], help="Source for active camera supervisor config.")
+    parser.add_argument("--active-camera-concurrency", type=int, help="Optional maximum number of active camera workers to start.")
+    parser.add_argument("--active-camera-status-interval-seconds", type=float, help="Supervisor status log interval in seconds.")
     parser.add_argument("--rtsp-read-timeout-seconds", type=float, help="Seconds without a frame before reconnecting.")
     parser.add_argument("--rtsp-reconnect-initial-delay-seconds", type=float, help="Initial reconnect backoff in seconds.")
     parser.add_argument("--rtsp-reconnect-max-delay-seconds", type=float, help="Maximum reconnect backoff in seconds.")
@@ -64,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--external-camera-key", help="Optional logical/external camera key.")
     parser.add_argument("--organization-id", help="Optional organization context.")
     parser.add_argument("--site-id", help="Optional site context.")
+    parser.add_argument("--zone-id", help="Optional zone context or active camera filter.")
     parser.add_argument("--minio-endpoint", help="MinIO endpoint, e.g. localhost:9000.")
     parser.add_argument("--minio-access-key", help="MinIO access key.")
     parser.add_argument("--minio-secret-key", help="MinIO secret key.")
@@ -82,13 +91,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _merge_cli(config, args):
     updates = {}
+    requested_source_type = "active_cameras" if args.active_cameras else args.source_type
     mapping = {
         "source_file": args.source_file,
-        "source_type": args.source_type,
+        "source_type": requested_source_type,
         "rtsp_url": args.rtsp_url,
         "rtsp_transport": args.rtsp_transport,
         "camera_config_db_url": args.camera_db_url,
         "camera_config_db_schema": args.camera_db_schema,
+        "active_camera_source": args.active_camera_source,
+        "active_camera_concurrency": args.active_camera_concurrency,
+        "active_camera_status_interval_seconds": args.active_camera_status_interval_seconds,
         "rtsp_read_timeout_seconds": args.rtsp_read_timeout_seconds,
         "rtsp_reconnect_initial_delay_seconds": args.rtsp_reconnect_initial_delay_seconds,
         "rtsp_reconnect_max_delay_seconds": args.rtsp_reconnect_max_delay_seconds,
@@ -104,6 +117,7 @@ def _merge_cli(config, args):
         "external_camera_key": args.external_camera_key,
         "organization_id": args.organization_id,
         "site_id": args.site_id,
+        "zone_id": args.zone_id,
         "minio_endpoint": args.minio_endpoint,
         "minio_access_key": args.minio_access_key,
         "minio_secret_key": args.minio_secret_key,
@@ -118,13 +132,22 @@ def _merge_cli(config, args):
         "log_level": args.log_level,
     }
     updates.update({key: value for key, value in mapping.items() if value is not None})
+    if requested_source_type == "active_cameras" and config.source_type != "active_cameras":
+        if args.camera_id is None:
+            updates["camera_id"] = None
+        if args.external_camera_key is None:
+            updates["external_camera_key"] = None
+        if args.site_id is None:
+            updates["site_id"] = None
+        if args.zone_id is None:
+            updates["zone_id"] = None
     if args.outbox_reset is not None:
         updates["outbox_reset"] = parse_bool(args.outbox_reset)
     if args.append_outbox:
         updates["outbox_reset"] = False
     if args.replay is not None:
         updates["replay"] = parse_bool(args.replay)
-    elif updates.get("source_type") == "rtsp":
+    elif updates.get("source_type") in {"rtsp", "active_cameras"}:
         updates["replay"] = False
     if args.replay_start_at is not None:
         updates["replay_start_at"] = parse_datetime(args.replay_start_at)
@@ -133,7 +156,13 @@ def _merge_cli(config, args):
     return replace(config, **updates)
 
 
-def _build_runner(*, config, storage, publisher):
+def _build_runner(*, config, storage=None, publisher=None):
+    if config.source_type == "active_cameras":
+        return ActiveCameraSupervisor(
+            config=config,
+            storage_factory=_build_storage,
+            publisher_factory=_build_publisher,
+        )
     if config.source_type == "rtsp":
         return RtspRunner(config=config, storage=storage, publisher=publisher)
     return ReplayRunner(config=config, storage=storage, publisher=publisher)
@@ -149,6 +178,12 @@ def _format_result(result) -> str:
         f"outbox={result.outbox_path}",
     ]
     for name in (
+        "cameras_loaded",
+        "workers_started",
+        "workers_stopped",
+        "workers_failed",
+        "cameras_connected",
+        "cameras_failing",
         "stream_opens",
         "reconnect_attempts",
         "frames_stored",

@@ -7,6 +7,8 @@ Ingestion de frames desde dos tipos de fuente:
 - `file_replay`: MP4 local como cámara virtual, con replay determinístico.
 - `rtsp`: stream RTSP real/vivo, con captura continua, timeout de lectura y
   reconexión con backoff simple.
+- `active_cameras`: supervisor local que lee cámaras RTSP activas desde
+  `vigilante_api.api.camera` y levanta un worker por cámara.
 
 Ambos modos muestrean frames a un FPS configurable, guardan evidencia mínima y
 emiten eventos `frame.ingested` consumibles por `vigilante-recognition`.
@@ -33,7 +35,7 @@ pip install -r requirements.txt
 
 Copia `.env.example` a `.env` y ajusta:
 
-- `INGESTION_SOURCE_TYPE`: `file_replay` o `rtsp`.
+- `INGESTION_SOURCE_TYPE`: `file_replay`, `rtsp` o `active_cameras`.
 - `INGESTION_SOURCE_FILE`: MP4 local usado como cámara virtual.
 - `INGESTION_RTSP_URL`: URL RTSP cuando no se use configuración desde `api.camera`.
 - `INGESTION_RTSP_TRANSPORT`: `tcp` o `udp`, por defecto `tcp`.
@@ -41,8 +43,13 @@ Copia `.env.example` a `.env` y ajusta:
 - `INGESTION_CAMERA_DB_SCHEMA`: schema donde está `camera`, por defecto `api`.
 - `CAMERA_SECRET_FERNET_KEY`: clave Fernet compartida con `vigilante-api` para
   descifrar `camera_secret`.
+- `INGESTION_ACTIVE_CAMERA_SOURCE`: fuente del supervisor. En este slice soporta
+  `db`.
+- `INGESTION_ACTIVE_CAMERA_CONCURRENCY`: límite opcional de workers de cámara.
+- `INGESTION_ACTIVE_CAMERA_STATUS_INTERVAL_SECONDS`: intervalo de resumen local.
 - `INGESTION_RTSP_READ_TIMEOUT_SECONDS`: segundos sin frames antes de reconectar.
 - `INGESTION_CAMERA_ID`: UUID canónico de `api.camera.camera_id`.
+- `INGESTION_ZONE_ID`: filtro/contexto opcional de zona.
 - `INGESTION_FPS`: frecuencia de captura, por ejemplo `1`, `2` o `5`.
 - `INGESTION_STORAGE_BACKEND`: `local`, `minio` o `s3`.
 - `INGESTION_LOCAL_STORAGE_DIR`: raíz de almacenamiento local.
@@ -54,9 +61,10 @@ Copia `.env.example` a `.env` y ajusta:
 - `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`,
   `RABBITMQ_VHOST`: conexión AMQP local.
 
-`camera_id` debe ser un UUID real existente en `api.camera`. No uses claves
-lógicas como FK operativa; si necesitas conservar una clave externa, usa
-`INGESTION_EXTERNAL_CAMERA_KEY`.
+En `file_replay` y `rtsp`, `camera_id` debe ser un UUID real existente en
+`api.camera`. En `active_cameras`, déjalo vacío para cargar todas las cámaras
+RTSP activas, o úsalo como filtro opcional junto con `INGESTION_SITE_ID`,
+`INGESTION_ZONE_ID` e `INGESTION_EXTERNAL_CAMERA_KEY`.
 
 ## Sample local
 
@@ -169,6 +177,85 @@ Para generar una clave local Fernet:
 
 ```bash
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+## Supervisor de cámaras activas
+
+El supervisor usa consulta directa a la DB `vigilante_api` como fuente primaria.
+No se agregó endpoint HTTP en `vigilante-api` para este slice: el acceso DB ya
+es estable en ingestion y permite leer `camera_secret` sin exponerlo por API.
+
+La carga inicial consulta `api.camera`, filtra:
+
+- `is_active = true`
+- `source_type = 'rtsp'`
+
+Luego cada fila válida construye la URL RTSP en runtime con prioridad de
+columnas estructuradas sobre metadata legacy. La URL con secreto solo vive en
+memoria para FFmpeg; logs, JSONL, RabbitMQ y metadata usan la versión
+enmascarada.
+
+Comando local con MinIO y RabbitMQ:
+
+```bash
+cd ../vigilante-ingestion
+source .venv/bin/activate
+export CAMERA_SECRET_FERNET_KEY=<fernet-key-si-camera_secret-esta-encriptado>
+PYTHONPATH=. python -m app.main \
+  --source-type active_cameras \
+  --camera-db-url postgresql://julio@localhost:5432/vigilante_api \
+  --camera-db-schema api \
+  --fps 1 \
+  --storage-backend minio \
+  --minio-endpoint localhost:9000 \
+  --minio-access-key minio \
+  --minio-secret-key minio123 \
+  --minio-bucket vigilante-frames \
+  --publish-mode rabbitmq
+```
+
+Para validación local acotada puedes agregar `--max-frames 10`. Sin
+`--max-frames`, cada worker queda corriendo y reconectando su cámara.
+
+Filtros opcionales:
+
+```bash
+--camera-id <UUID>
+--external-camera-key <KEY>
+--site-id <UUID>
+--zone-id <UUID>
+--active-camera-concurrency 2
+```
+
+Modelo operativo:
+
+- un thread por cámara activa cargada al inicio;
+- storage y publisher se crean por worker, reutilizando los backends existentes;
+- el outbox JSONL se resetea una sola vez al iniciar supervisor y luego cada
+  worker escribe en append;
+- fallos de RTSP, storage o publish se capturan por cámara y se reintentan con
+  el mismo backoff simple de RTSP;
+- una cámara fallida no detiene las demás;
+- el muestreo es global por `--fps` / `INGESTION_FPS`; override por cámara queda
+  preparado para un slice futuro vía metadata o columnas.
+
+Logs principales:
+
+- `active_camera_supervisor_loaded`
+- `active_camera_supervisor_status`
+- `camera_stream_starting`
+- `camera_stream_connected`
+- `camera_stream_disconnected`
+- `camera_stream_reconnect_scheduled`
+- `camera_frame_ingested`
+- `camera_worker_stopped`
+
+Para correr recognition en paralelo:
+
+```bash
+cd ../vigilante-recognition
+source .venv/bin/activate
+PYTHONPATH=. python -m app.worker --rabbitmq-consumer
 ```
 
 ## Contrato emitido
@@ -336,12 +423,14 @@ PYTHONPATH=. pytest
 
 La suite genera videos MP4 temporales con FFmpeg, valida metadata, extracción,
 storage local, construcción del evento `frame.ingested`, errores básicos,
-replay determinístico y RTSP con readers/sources simulados para timeout y
-reconexión.
+replay determinístico, RTSP con readers/sources simulados para timeout y
+reconexión, y el supervisor de cámaras activas con loader DB simulado.
 
 ## Pendiente próximos slices
 
 - webcam local formal
 - integración con `vigilante-media` encima de `frame_ref` / `frame_uri`
+- reload periódico de `api.camera`
+- endpoint/health formal por cámara
 - health events (`camera_offline`, `stream_frozen`, `stream_recovered`)
 - control de backpressure y métricas operativas

@@ -43,6 +43,7 @@ def build_rtsp_url_from_camera_config(config: RtspCameraConfig, *, camera_secret
     parsed_legacy_url = urlparse(legacy_stream_url) if legacy_stream_url else None
 
     source_type = _first_text(config.source_type, _metadata_string(metadata, "source_type"))
+    source_type = source_type.lower() if source_type else None
     if not source_type and parsed_legacy_url and parsed_legacy_url.scheme in {"rtsp", "rtsps"}:
         source_type = "rtsp"
     if source_type != "rtsp":

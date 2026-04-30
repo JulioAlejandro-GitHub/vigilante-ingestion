@@ -48,6 +48,8 @@ def build_frame_ingested_event(
         context["organization_id"] = config.organization_id
     if config.site_id:
         context["site_id"] = config.site_id
+    if config.zone_id:
+        context["zone_id"] = config.zone_id
 
     payload = {
         "camera_id": frame.camera_id,

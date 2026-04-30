@@ -61,7 +61,7 @@ def format_datetime(value: datetime) -> str:
 @dataclass(frozen=True)
 class IngestionConfig:
     source_file: Path
-    camera_id: str
+    camera_id: str | None = None
     capture_fps: float = 1.0
     max_frames: int | None = None
     storage_backend: str = "local"
@@ -74,6 +74,7 @@ class IngestionConfig:
     external_camera_key: str | None = None
     organization_id: str | None = None
     site_id: str | None = None
+    zone_id: str | None = None
     source_type: str = "file_replay"
     source_name: str | None = None
     rtsp_url: str | None = None
@@ -81,6 +82,9 @@ class IngestionConfig:
     camera_config_db_url: str | None = None
     camera_config_db_schema: str = "api"
     camera_secret_fernet_key: str | None = None
+    active_camera_source: str = "db"
+    active_camera_concurrency: int | None = None
+    active_camera_status_interval_seconds: float = 30.0
     rtsp_read_timeout_seconds: float = 10.0
     rtsp_reconnect_initial_delay_seconds: float = 1.0
     rtsp_reconnect_max_delay_seconds: float = 30.0
@@ -118,15 +122,20 @@ class IngestionConfig:
             raise ValueError("storage_backend must be 'local', 'minio' or 's3'")
         if self.publish_mode not in {"jsonl", "rabbitmq", "both"}:
             raise ValueError("publish_mode must be 'jsonl', 'rabbitmq' or 'both'")
-        if self.source_type not in {"file_replay", "video_file", "rtsp"}:
-            raise ValueError("source_type must be 'file_replay' or 'rtsp'")
+        if self.source_type not in {"file_replay", "video_file", "rtsp", "active_cameras"}:
+            raise ValueError("source_type must be 'file_replay', 'video_file', 'rtsp' or 'active_cameras'")
+        if self.source_type != "active_cameras" and not self.camera_id:
+            raise ValueError("camera_id is required unless source_type is 'active_cameras'")
         if self.source_type == "rtsp":
+            if not self.camera_id:
+                raise ValueError("camera_id is required when source_type is 'rtsp'")
             if not self.rtsp_url and not self.camera_config_db_url:
                 raise ValueError("rtsp_url or camera_config_db_url is required when source_type is 'rtsp'")
             if self.rtsp_url:
                 parsed = urlparse(self.rtsp_url)
                 if parsed.scheme not in {"rtsp", "rtsps"} or not parsed.netloc:
                     raise ValueError("rtsp_url must be a valid rtsp:// or rtsps:// URL")
+        if self.source_type in {"rtsp", "active_cameras"}:
             if self.rtsp_transport not in {"tcp", "udp"}:
                 raise ValueError("rtsp_transport must be 'tcp' or 'udp'")
             if self.rtsp_read_timeout_seconds <= 0:
@@ -139,7 +148,17 @@ class IngestionConfig:
                 raise ValueError("rtsp_reconnect_backoff_multiplier must be greater than or equal to one")
             if self.rtsp_max_reconnect_attempts is not None and self.rtsp_max_reconnect_attempts < 0:
                 raise ValueError("rtsp_max_reconnect_attempts must not be negative")
-        UUID(self.camera_id)
+        if self.source_type == "active_cameras":
+            if self.active_camera_source != "db":
+                raise ValueError("active_camera_source must be 'db'")
+            if not self.camera_config_db_url:
+                raise ValueError("camera_config_db_url is required when source_type is 'active_cameras'")
+            if self.active_camera_concurrency is not None and self.active_camera_concurrency <= 0:
+                raise ValueError("active_camera_concurrency must be greater than zero when provided")
+            if self.active_camera_status_interval_seconds <= 0:
+                raise ValueError("active_camera_status_interval_seconds must be greater than zero")
+        if self.camera_id:
+            UUID(self.camera_id)
 
 
 def config_from_env() -> IngestionConfig:
@@ -147,9 +166,11 @@ def config_from_env() -> IngestionConfig:
     max_frames = os.getenv("INGESTION_MAX_FRAMES")
     storage_backend = os.getenv("INGESTION_STORAGE_BACKEND", "local")
     source_type = os.getenv("INGESTION_SOURCE_TYPE", "file_replay")
-    replay_default = False if source_type == "rtsp" else True
+    replay_default = False if source_type in {"rtsp", "active_cameras"} else True
     rtsp_max_reconnect_attempts = os.getenv("INGESTION_RTSP_MAX_RECONNECT_ATTEMPTS")
+    active_camera_concurrency = os.getenv("INGESTION_ACTIVE_CAMERA_CONCURRENCY")
     remote_prefixes = ("INGESTION_S3", "INGESTION_MINIO") if storage_backend == "s3" else ("INGESTION_MINIO", "INGESTION_S3")
+    camera_id_default = None if source_type == "active_cameras" else "11111111-1111-1111-1111-111111111111"
 
     def remote_env(name: str, default: str) -> str:
         primary, fallback = remote_prefixes
@@ -157,7 +178,7 @@ def config_from_env() -> IngestionConfig:
 
     return IngestionConfig(
         source_file=Path(os.getenv("INGESTION_SOURCE_FILE", "samples/cam01.mp4")),
-        camera_id=os.getenv("INGESTION_CAMERA_ID", "11111111-1111-1111-1111-111111111111"),
+        camera_id=os.getenv("INGESTION_CAMERA_ID", camera_id_default),
         capture_fps=float(os.getenv("INGESTION_FPS", "1")),
         max_frames=int(max_frames) if max_frames else None,
         storage_backend=storage_backend,
@@ -170,6 +191,7 @@ def config_from_env() -> IngestionConfig:
         external_camera_key=os.getenv("INGESTION_EXTERNAL_CAMERA_KEY"),
         organization_id=os.getenv("INGESTION_ORGANIZATION_ID"),
         site_id=os.getenv("INGESTION_SITE_ID"),
+        zone_id=os.getenv("INGESTION_ZONE_ID"),
         source_type=source_type,
         source_name=os.getenv("INGESTION_SOURCE_NAME"),
         rtsp_url=os.getenv("INGESTION_RTSP_URL"),
@@ -177,6 +199,9 @@ def config_from_env() -> IngestionConfig:
         camera_config_db_url=_camera_config_db_url_from_env(),
         camera_config_db_schema=os.getenv("INGESTION_CAMERA_DB_SCHEMA", os.getenv("DB_SCHEMA_API", "api")),
         camera_secret_fernet_key=os.getenv("CAMERA_SECRET_FERNET_KEY"),
+        active_camera_source=os.getenv("INGESTION_ACTIVE_CAMERA_SOURCE", "db"),
+        active_camera_concurrency=int(active_camera_concurrency) if active_camera_concurrency else None,
+        active_camera_status_interval_seconds=float(os.getenv("INGESTION_ACTIVE_CAMERA_STATUS_INTERVAL_SECONDS", "30")),
         rtsp_read_timeout_seconds=float(os.getenv("INGESTION_RTSP_READ_TIMEOUT_SECONDS", "10")),
         rtsp_reconnect_initial_delay_seconds=float(os.getenv("INGESTION_RTSP_RECONNECT_INITIAL_DELAY_SECONDS", "1")),
         rtsp_reconnect_max_delay_seconds=float(os.getenv("INGESTION_RTSP_RECONNECT_MAX_DELAY_SECONDS", "30")),
