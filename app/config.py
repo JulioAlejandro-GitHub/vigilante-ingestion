@@ -84,7 +84,12 @@ class IngestionConfig:
     camera_secret_fernet_key: str | None = None
     active_camera_source: str = "db"
     active_camera_concurrency: int | None = None
+    active_camera_refresh_seconds: float = 30.0
     active_camera_status_interval_seconds: float = 30.0
+    active_camera_stop_timeout_seconds: float = 10.0
+    active_camera_enable_health_server: bool = False
+    active_camera_health_host: str = "127.0.0.1"
+    active_camera_health_port: int = 8088
     rtsp_read_timeout_seconds: float = 10.0
     rtsp_reconnect_initial_delay_seconds: float = 1.0
     rtsp_reconnect_max_delay_seconds: float = 30.0
@@ -155,8 +160,14 @@ class IngestionConfig:
                 raise ValueError("camera_config_db_url is required when source_type is 'active_cameras'")
             if self.active_camera_concurrency is not None and self.active_camera_concurrency <= 0:
                 raise ValueError("active_camera_concurrency must be greater than zero when provided")
+            if self.active_camera_refresh_seconds <= 0:
+                raise ValueError("active_camera_refresh_seconds must be greater than zero")
             if self.active_camera_status_interval_seconds <= 0:
                 raise ValueError("active_camera_status_interval_seconds must be greater than zero")
+            if self.active_camera_stop_timeout_seconds <= 0:
+                raise ValueError("active_camera_stop_timeout_seconds must be greater than zero")
+            if self.active_camera_health_port < 0 or self.active_camera_health_port > 65535:
+                raise ValueError("active_camera_health_port must be between 0 and 65535")
         if self.camera_id:
             UUID(self.camera_id)
 
@@ -201,7 +212,12 @@ def config_from_env() -> IngestionConfig:
         camera_secret_fernet_key=os.getenv("CAMERA_SECRET_FERNET_KEY"),
         active_camera_source=os.getenv("INGESTION_ACTIVE_CAMERA_SOURCE", "db"),
         active_camera_concurrency=int(active_camera_concurrency) if active_camera_concurrency else None,
+        active_camera_refresh_seconds=float(os.getenv("INGESTION_ACTIVE_CAMERA_REFRESH_SECONDS", "30")),
         active_camera_status_interval_seconds=float(os.getenv("INGESTION_ACTIVE_CAMERA_STATUS_INTERVAL_SECONDS", "30")),
+        active_camera_stop_timeout_seconds=float(os.getenv("INGESTION_ACTIVE_CAMERA_STOP_TIMEOUT_SECONDS", "10")),
+        active_camera_enable_health_server=parse_bool(os.getenv("INGESTION_ACTIVE_CAMERA_ENABLE_HEALTH_SERVER"), default=False),
+        active_camera_health_host=os.getenv("INGESTION_ACTIVE_CAMERA_HEALTH_HOST", "127.0.0.1"),
+        active_camera_health_port=int(os.getenv("INGESTION_ACTIVE_CAMERA_HEALTH_PORT", "8088")),
         rtsp_read_timeout_seconds=float(os.getenv("INGESTION_RTSP_READ_TIMEOUT_SECONDS", "10")),
         rtsp_reconnect_initial_delay_seconds=float(os.getenv("INGESTION_RTSP_RECONNECT_INITIAL_DELAY_SECONDS", "1")),
         rtsp_reconnect_max_delay_seconds=float(os.getenv("INGESTION_RTSP_RECONNECT_MAX_DELAY_SECONDS", "30")),

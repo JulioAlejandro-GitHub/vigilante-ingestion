@@ -52,7 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera-db-schema", help="Schema that contains api.camera, default api.")
     parser.add_argument("--active-camera-source", choices=["db"], help="Source for active camera supervisor config.")
     parser.add_argument("--active-camera-concurrency", type=int, help="Optional maximum number of active camera workers to start.")
+    parser.add_argument("--active-camera-refresh-seconds", type=float, help="Active camera reload interval in seconds.")
     parser.add_argument("--active-camera-status-interval-seconds", type=float, help="Supervisor status log interval in seconds.")
+    parser.add_argument("--active-camera-stop-timeout-seconds", type=float, help="Seconds to wait for a camera worker to stop.")
+    parser.add_argument("--active-camera-enable-health-server", choices=["true", "false"], help="Enable the local supervisor health HTTP server.")
+    parser.add_argument("--active-camera-health-host", help="Bind host for the local supervisor health HTTP server.")
+    parser.add_argument("--active-camera-health-port", type=int, help="Bind port for the local supervisor health HTTP server.")
     parser.add_argument("--rtsp-read-timeout-seconds", type=float, help="Seconds without a frame before reconnecting.")
     parser.add_argument("--rtsp-reconnect-initial-delay-seconds", type=float, help="Initial reconnect backoff in seconds.")
     parser.add_argument("--rtsp-reconnect-max-delay-seconds", type=float, help="Maximum reconnect backoff in seconds.")
@@ -101,7 +106,11 @@ def _merge_cli(config, args):
         "camera_config_db_schema": args.camera_db_schema,
         "active_camera_source": args.active_camera_source,
         "active_camera_concurrency": args.active_camera_concurrency,
+        "active_camera_refresh_seconds": args.active_camera_refresh_seconds,
         "active_camera_status_interval_seconds": args.active_camera_status_interval_seconds,
+        "active_camera_stop_timeout_seconds": args.active_camera_stop_timeout_seconds,
+        "active_camera_health_host": args.active_camera_health_host,
+        "active_camera_health_port": args.active_camera_health_port,
         "rtsp_read_timeout_seconds": args.rtsp_read_timeout_seconds,
         "rtsp_reconnect_initial_delay_seconds": args.rtsp_reconnect_initial_delay_seconds,
         "rtsp_reconnect_max_delay_seconds": args.rtsp_reconnect_max_delay_seconds,
@@ -143,6 +152,8 @@ def _merge_cli(config, args):
             updates["zone_id"] = None
     if args.outbox_reset is not None:
         updates["outbox_reset"] = parse_bool(args.outbox_reset)
+    if args.active_camera_enable_health_server is not None:
+        updates["active_camera_enable_health_server"] = parse_bool(args.active_camera_enable_health_server)
     if args.append_outbox:
         updates["outbox_reset"] = False
     if args.replay is not None:

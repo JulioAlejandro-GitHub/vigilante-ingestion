@@ -46,7 +46,11 @@ Copia `.env.example` a `.env` y ajusta:
 - `INGESTION_ACTIVE_CAMERA_SOURCE`: fuente del supervisor. En este slice soporta
   `db`.
 - `INGESTION_ACTIVE_CAMERA_CONCURRENCY`: límite opcional de workers de cámara.
+- `INGESTION_ACTIVE_CAMERA_REFRESH_SECONDS`: intervalo de reload dinámico.
 - `INGESTION_ACTIVE_CAMERA_STATUS_INTERVAL_SECONDS`: intervalo de resumen local.
+- `INGESTION_ACTIVE_CAMERA_ENABLE_HEALTH_SERVER`: habilita HTTP local de health.
+- `INGESTION_ACTIVE_CAMERA_HEALTH_HOST` y `INGESTION_ACTIVE_CAMERA_HEALTH_PORT`:
+  bind del health HTTP local.
 - `INGESTION_RTSP_READ_TIMEOUT_SECONDS`: segundos sin frames antes de reconectar.
 - `INGESTION_CAMERA_ID`: UUID canónico de `api.camera.camera_id`.
 - `INGESTION_ZONE_ID`: filtro/contexto opcional de zona.
@@ -205,6 +209,9 @@ PYTHONPATH=. python -m app.main \
   --source-type active_cameras \
   --camera-db-url postgresql://julio@localhost:5432/vigilante_api \
   --camera-db-schema api \
+  --active-camera-refresh-seconds 15 \
+  --active-camera-enable-health-server true \
+  --active-camera-health-port 8088 \
   --fps 1 \
   --storage-backend minio \
   --minio-endpoint localhost:9000 \
@@ -215,7 +222,8 @@ PYTHONPATH=. python -m app.main \
 ```
 
 Para validación local acotada puedes agregar `--max-frames 10`. Sin
-`--max-frames`, cada worker queda corriendo y reconectando su cámara.
+`--max-frames`, el supervisor queda corriendo, refresca la lista de cámaras en
+el intervalo configurado y cada worker queda reconectando su cámara.
 
 Filtros opcionales:
 
@@ -229,19 +237,43 @@ Filtros opcionales:
 
 Modelo operativo:
 
-- un thread por cámara activa cargada al inicio;
+- snapshot inicial y luego reload periódico con diff `start/stop/restart`;
+- un thread por cámara deseada activa;
 - storage y publisher se crean por worker, reutilizando los backends existentes;
 - el outbox JSONL se resetea una sola vez al iniciar supervisor y luego cada
   worker escribe en append;
+- si una cámara aparece activa, se inicia worker;
+- si una cámara deja de estar activa o sale de los filtros, el worker se detiene
+  y queda `disabled`;
+- si cambia el hash de configuración relevante, el worker se reinicia;
+- si falla el refresh DB, se conserva el snapshot anterior y los workers siguen;
 - fallos de RTSP, storage o publish se capturan por cámara y se reintentan con
   el mismo backoff simple de RTSP;
 - una cámara fallida no detiene las demás;
 - el muestreo es global por `--fps` / `INGESTION_FPS`; override por cámara queda
   preparado para un slice futuro vía metadata o columnas.
 
+Health HTTP opcional:
+
+```bash
+curl http://127.0.0.1:8088/health
+curl http://127.0.0.1:8088/health/summary
+curl http://127.0.0.1:8088/health/cameras
+```
+
+El estado por cámara incluye `camera_id`, `external_camera_key`, `site_id`,
+`zone_id`, `name`, `is_desired_active`, `worker_state`, timestamps de start,
+conexión, último frame y última publicación, contadores, último error y
+`config_version_hash`.
+
+El resumen global incluye cámaras cargadas, cámaras deseadas activas, workers
+corriendo/conectados/retry/failed/stopped, totales de frames/eventos, último
+refresh y cambios aplicados en el último refresh.
+
 Logs principales:
 
-- `active_camera_supervisor_loaded`
+- `active_camera_refresh_diff`
+- `active_camera_refresh_applied`
 - `active_camera_supervisor_status`
 - `camera_stream_starting`
 - `camera_stream_connected`
@@ -430,7 +462,7 @@ reconexión, y el supervisor de cámaras activas con loader DB simulado.
 
 - webcam local formal
 - integración con `vigilante-media` encima de `frame_ref` / `frame_uri`
-- reload periódico de `api.camera`
-- endpoint/health formal por cámara
+- métricas formales / exporter Prometheus
+- overrides por cámara de FPS y parámetros operativos
 - health events (`camera_offline`, `stream_frozen`, `stream_recovered`)
 - control de backpressure y métricas operativas

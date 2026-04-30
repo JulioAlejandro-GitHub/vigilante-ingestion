@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -33,6 +35,7 @@ class ActiveCamera:
     rtsp_url: str
     safe_rtsp_url: str
     rtsp_transport: str
+    config_version_hash: str
     source_type: str = "rtsp"
 
 
@@ -81,6 +84,11 @@ def load_active_rtsp_cameras(
                 rtsp_url=rtsp.url,
                 safe_rtsp_url=rtsp.safe_url,
                 rtsp_transport=rtsp.rtsp_transport,
+                config_version_hash=_config_version_hash(
+                    row=row,
+                    rtsp_url=rtsp.url,
+                    rtsp_transport=rtsp.rtsp_transport,
+                ),
                 source_type=rtsp.source_type,
             )
         )
@@ -194,3 +202,17 @@ def _is_active_value(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"true", "t", "yes", "y", "on"}
     return False
+
+
+def _config_version_hash(*, row: dict[str, Any], rtsp_url: str, rtsp_transport: str) -> str:
+    relevant = {
+        "camera_id": _optional_text(row.get("camera_id")),
+        "external_camera_key": _optional_text(row.get("external_camera_key")),
+        "site_id": _optional_text(row.get("site_id")),
+        "zone_id": _optional_text(row.get("zone_id")),
+        "name": _optional_text(row.get("name")),
+        "rtsp_transport": rtsp_transport,
+        "rtsp_url": rtsp_url,
+    }
+    payload = json.dumps(relevant, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()

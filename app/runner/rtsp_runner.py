@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 RtspSourceFactory = Callable[[], object]
 Sleeper = Callable[[float], None]
 RtspLifecycleCallback = Callable[[str, dict[str, Any]], None]
+ShouldStop = Callable[[], bool]
 RTSP_RECOVERABLE_ERRORS = (StreamOpenError, StreamReadError, JpegMetadataError)
 
 
@@ -58,6 +59,7 @@ class RtspRunner:
         source_factory: RtspSourceFactory | None = None,
         sleep: Sleeper = time.sleep,
         lifecycle_callback: RtspLifecycleCallback | None = None,
+        should_stop: ShouldStop | None = None,
     ) -> None:
         self.config = config
         self.storage = storage
@@ -65,6 +67,7 @@ class RtspRunner:
         self.source_factory = source_factory
         self.sleep = sleep
         self.lifecycle_callback = lifecycle_callback
+        self.should_stop = should_stop or (lambda: False)
         self.safe_rtsp_url = mask_rtsp_credentials(config.rtsp_url or "")
 
     def run(self) -> RtspResult:
@@ -77,7 +80,7 @@ class RtspRunner:
         )
 
         try:
-            while self._should_continue(counters):
+            while self._should_continue(counters) and not self.should_stop():
                 remaining = self._remaining_frames(counters)
                 source = self._build_source()
                 counters.stream_opens += 1
@@ -99,6 +102,8 @@ class RtspRunner:
                         max_frames=remaining,
                         start_sample_index=counters.frames_captured,
                     ):
+                        if self.should_stop():
+                            break
                         if stream_frames == 0:
                             reconnect_policy.reset()
                             logger.info(
@@ -134,9 +139,11 @@ class RtspRunner:
                             frame_ref=stored_frame.frame_ref,
                         )
 
-                    if self._should_continue(counters):
+                    if self._should_continue(counters) and not self.should_stop():
                         raise StreamReadError("RTSP stream ended before max_frames was reached")
                 except RTSP_RECOVERABLE_ERRORS as exc:
+                    if self.should_stop():
+                        break
                     counters.read_failures += 1
                     logger.warning(
                         "rtsp_stream_disconnected url=%s error_type=%s error=%s frames_in_stream=%s",

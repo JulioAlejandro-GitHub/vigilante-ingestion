@@ -25,7 +25,7 @@ def test_supervisor_builds_one_worker_per_active_camera_and_uses_pipeline_factor
         camera_loader=lambda _config: [_camera(CAMERA_A), _camera(CAMERA_B)],
         storage_factory=lambda config: storage_configs.append(config.camera_id) or _FakeStorage(),
         publisher_factory=lambda config: publisher_configs.append(config.camera_id) or _FakePublisher(),
-        runner_factory=lambda config, storage, publisher, callback: runner_configs.append(config.camera_id)
+        runner_factory=lambda config, storage, publisher, callback, should_stop: runner_configs.append(config.camera_id)
         or _FakeRunner(callback=callback, result=_result(frames=1)),
         sleep=lambda _delay: None,
     )
@@ -43,7 +43,7 @@ def test_supervisor_builds_one_worker_per_active_camera_and_uses_pipeline_factor
 
 
 def test_supervisor_isolates_failed_camera_from_other_workers(tmp_path) -> None:
-    def runner_factory(config, storage, publisher, callback):
+    def runner_factory(config, storage, publisher, callback, should_stop):
         if config.camera_id == CAMERA_A:
             return _FailingRunner(callback=callback, error=RuntimeError("camera unavailable"))
         return _FakeRunner(callback=callback, result=_result(frames=2))
@@ -73,7 +73,7 @@ def test_supervisor_restarts_failed_camera_with_backoff(tmp_path) -> None:
     attempts: dict[str, int] = {CAMERA_A: 0}
     sleeps: list[float] = []
 
-    def runner_factory(config, storage, publisher, callback):
+    def runner_factory(config, storage, publisher, callback, should_stop):
         attempts[config.camera_id] += 1
         if attempts[config.camera_id] == 1:
             return _FailingRunner(callback=callback, error=RuntimeError("temporary publish failure"))
@@ -176,6 +176,7 @@ def _camera(camera_id: str) -> ActiveCamera:
         rtsp_url=f"rtsp://admin:secret@camera-{camera_id[:4]}.local:554/live",
         safe_rtsp_url=f"rtsp://admin:***@camera-{camera_id[:4]}.local:554/live",
         rtsp_transport="tcp",
+        config_version_hash=f"hash-{camera_id[:4]}",
     )
 
 
