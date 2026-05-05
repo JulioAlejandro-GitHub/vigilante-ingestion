@@ -120,6 +120,14 @@ columnas estructuradas `source_type`, `camera_hostname`, `camera_port`,
 FFmpeg. `metadata` queda como fallback temporal; `metadata.stream_url` solo se
 usa como último recurso para derivar campos faltantes.
 
+Si la fila trae `metadata.recognition`, ingestion sanea esa porción y la adjunta
+en cada `frame.ingested` como `payload.metadata.camera_runtime_config`. Solo se
+transportan campos allowlist para `recognition.face_tuning` y
+`recognition.vlm_policy`; URLs RTSP, secretos, tokens y claves desconocidas no
+se publican. El bloque incluye `config_source=api.camera.metadata`,
+`camera_config_version`, `config_hash` y `effective_config_hash` para que
+recognition pueda trazar el origen exacto de la configuración aplicada.
+
 Ejemplo local con storage local y JSONL:
 
 ```bash
@@ -251,7 +259,9 @@ Modelo operativo:
   el mismo backoff simple de RTSP;
 - una cámara fallida no detiene las demás;
 - el muestreo es global por `--fps` / `INGESTION_FPS`; override por cámara queda
-  preparado para un slice futuro vía metadata o columnas.
+  preparado para un slice futuro vía metadata o columnas;
+- cambios en `metadata.recognition` cambian el hash de configuración relevante y
+  fuerzan restart del worker de esa cámara para publicar la config viva nueva.
 
 Health HTTP opcional:
 
@@ -308,6 +318,8 @@ Por cada frame, sea MP4 o RTSP, se emite `frame.ingested` con:
 - `payload.content_type`
 - `payload.source_type`
 - `payload.quality_metadata`
+- `payload.metadata.camera_runtime_config` cuando `api.camera.metadata.recognition`
+  trae tuning/policy operativa
 - `context.idempotency_key`
 
 `payload.frame_ref` es el campo canónico que hoy consume

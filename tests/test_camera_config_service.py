@@ -35,7 +35,13 @@ def test_apply_camera_database_config_resolves_rtsp_url_from_api_camera_row() ->
             "subtype": 0,
             "camera_user": "admin",
             "camera_secret": encrypted_secret,
-            "metadata": {"stream_url": "rtsp://wrong:wrong@legacy.local:8554/live"},
+            "metadata": {
+                "stream_url": "rtsp://wrong:wrong@legacy.local:8554/live",
+                "recognition": {
+                    "face_tuning": {"det_size": "320,320"},
+                    "vlm_policy": {"backend": "simple"},
+                },
+            },
         },
     )
 
@@ -43,3 +49,6 @@ def test_apply_camera_database_config_resolves_rtsp_url_from_api_camera_row() ->
     assert resolved.rtsp_transport == "tcp"
     assert resolved.external_camera_key == "cam-rtsp"
     assert resolved.site_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1"
+    assert resolved.camera_runtime_config["config_source"] == "api.camera.metadata"
+    assert resolved.camera_runtime_config["recognition"]["face_tuning"]["det_size"] == "320,320"
+    assert resolved.camera_runtime_config["recognition"]["vlm_policy"]["backend"] == "simple"

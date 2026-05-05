@@ -24,6 +24,7 @@ def test_load_active_rtsp_cameras_filters_active_rtsp_rows() -> None:
     assert cameras[0].zone_id == ZONE_ID
     assert cameras[0].rtsp_url == "rtsp://admin:secret@192.168.100.143:554/cam/realmonitor?channel=1&subtype=0"
     assert cameras[0].safe_rtsp_url == "rtsp://admin:***@192.168.100.143:554/cam/realmonitor?channel=1&subtype=0"
+    assert cameras[0].camera_runtime_config["recognition"]["vlm_policy"]["backend"] == "simple"
 
 
 def test_load_active_rtsp_cameras_applies_optional_filters() -> None:
@@ -65,6 +66,18 @@ def test_load_active_rtsp_cameras_supports_legacy_metadata_fallback() -> None:
     assert len(cameras) == 1
     assert cameras[0].rtsp_url == "rtsp://legacy:legacy-secret@legacy.local:8554/live?channel=2&subtype=1"
     assert cameras[0].safe_rtsp_url == "rtsp://legacy:***@legacy.local:8554/live?channel=2&subtype=1"
+
+
+def test_active_camera_hash_changes_when_recognition_runtime_config_changes() -> None:
+    row_v1 = _row(camera_id=CAMERA_A, external_camera_key="cam-a")
+    row_v2 = _row(camera_id=CAMERA_A, external_camera_key="cam-a")
+    row_v2["metadata"] = {"recognition": {"vlm_policy": {"backend": "auto"}}}
+
+    camera_v1 = load_active_rtsp_cameras(_config(), row_fetcher=lambda _config: [row_v1])[0]
+    camera_v2 = load_active_rtsp_cameras(_config(), row_fetcher=lambda _config: [row_v2])[0]
+
+    assert camera_v1.config_version_hash != camera_v2.config_version_hash
+    assert camera_v2.camera_runtime_config["recognition"]["vlm_policy"]["backend"] == "auto"
 
 
 def _config(**overrides) -> IngestionConfig:
@@ -111,5 +124,5 @@ def _row(
         "subtype": 0,
         "camera_user": "admin",
         "camera_secret": "secret",
-        "metadata": {},
+        "metadata": {"recognition": {"vlm_policy": {"backend": "simple"}}},
     }

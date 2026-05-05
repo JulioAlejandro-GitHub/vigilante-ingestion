@@ -5,6 +5,7 @@ from dataclasses import replace
 from typing import Any, Callable
 
 from app.config import IngestionConfig
+from app.services.camera_runtime_config_mapper import build_camera_runtime_config
 from app.services.rtsp_url_builder import RtspCameraConfig, build_rtsp_url_from_camera_config
 
 
@@ -25,6 +26,10 @@ def apply_camera_database_config(config: IngestionConfig, *, row_fetcher: Camera
         raise CameraConfigLookupError(f"api.camera row not found for camera_id={config.camera_id}")
 
     rtsp = build_rtsp_url_from_camera_config(row_to_rtsp_camera_config(row), camera_secret_fernet_key=config.camera_secret_fernet_key)
+    camera_runtime_config = build_camera_runtime_config(
+        camera_id=config.camera_id,
+        camera_metadata=_metadata_to_dict(row.get("metadata")),
+    )
     return replace(
         config,
         rtsp_url=rtsp.url,
@@ -34,6 +39,7 @@ def apply_camera_database_config(config: IngestionConfig, *, row_fetcher: Camera
         site_id=config.site_id or _optional_text(row.get("site_id")),
         zone_id=config.zone_id or _optional_text(row.get("zone_id")),
         source_name=config.source_name or _optional_text(row.get("name")),
+        camera_runtime_config=camera_runtime_config,
     )
 
 

@@ -97,6 +97,34 @@ def test_build_frame_ingested_event_masks_rtsp_secret_if_frame_uri_is_raw() -> N
     assert "admin123" not in str(event)
 
 
+def test_build_frame_ingested_event_attaches_camera_runtime_config(tmp_path) -> None:
+    frame = _frame()
+    stored = _stored_frame(tmp_path)
+    config = IngestionConfig(
+        source_file=Path("samples/cam01.mp4"),
+        camera_id=CAMERA_ID,
+        camera_runtime_config={
+            "schema_version": "camera_runtime_config_v1",
+            "config_source": "api.camera.metadata",
+            "camera_id": CAMERA_ID,
+            "camera_config_version": "ops-v1",
+            "config_hash": "hash",
+            "recognition": {
+                "face_tuning": {"det_size": "320,320"},
+                "vlm_policy": {"backend": "simple"},
+            },
+        },
+    )
+
+    event = build_frame_ingested_event(frame=frame, stored_frame=stored, config=config)
+
+    runtime_config = event["payload"]["metadata"]["camera_runtime_config"]
+    assert runtime_config["config_source"] == "api.camera.metadata"
+    assert runtime_config["camera_config_version"] == "ops-v1"
+    assert runtime_config["recognition"]["face_tuning"]["det_size"] == "320,320"
+    assert runtime_config["recognition"]["vlm_policy"]["backend"] == "simple"
+
+
 def test_outbox_file_publisher_writes_jsonl(tmp_path) -> None:
     outbox = tmp_path / "outbox" / "frame_ingested.jsonl"
     publisher = OutboxFilePublisher(outbox, reset=True)

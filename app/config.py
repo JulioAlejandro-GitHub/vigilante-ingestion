@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -75,6 +75,7 @@ class IngestionConfig:
     organization_id: str | None = None
     site_id: str | None = None
     zone_id: str | None = None
+    camera_runtime_config: dict[str, object] = field(default_factory=dict)
     source_type: str = "file_replay"
     source_name: str | None = None
     rtsp_url: str | None = None

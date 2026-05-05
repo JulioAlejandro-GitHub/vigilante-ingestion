@@ -8,6 +8,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from app.capture.rtsp_source import mask_rtsp_credentials
 from app.config import IngestionConfig, format_datetime
 from app.models.frame import CapturedFrame, StoredFrame
+from app.services.camera_runtime_config_mapper import RUNTIME_CONFIG_METADATA_KEY
 
 
 class OutboxFilePublisher:
@@ -80,6 +81,8 @@ def build_frame_ingested_event(
     }
     if config.external_camera_key:
         payload["external_camera_key"] = config.external_camera_key
+    if config.camera_runtime_config:
+        payload["metadata"][RUNTIME_CONFIG_METADATA_KEY] = dict(config.camera_runtime_config)
 
     emitted_at = captured_at if config.replay else format_datetime(datetime.now(timezone.utc))
     return {

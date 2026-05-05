@@ -14,6 +14,7 @@ from app.services.camera_config_service import (
     _quote_identifier,
     row_to_rtsp_camera_config,
 )
+from app.services.camera_runtime_config_mapper import build_camera_runtime_config
 from app.services.rtsp_url_builder import build_rtsp_url_from_camera_config
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class ActiveCamera:
     safe_rtsp_url: str
     rtsp_transport: str
     config_version_hash: str
+    camera_runtime_config: dict[str, Any] | None = None
     source_type: str = "rtsp"
 
 
@@ -74,6 +76,10 @@ def load_active_rtsp_cameras(
             )
             continue
 
+        camera_runtime_config = build_camera_runtime_config(
+            camera_id=camera_id,
+            camera_metadata=_metadata_to_dict(row.get("metadata")),
+        )
         cameras.append(
             ActiveCamera(
                 camera_id=camera_id,
@@ -88,7 +94,9 @@ def load_active_rtsp_cameras(
                     row=row,
                     rtsp_url=rtsp.url,
                     rtsp_transport=rtsp.rtsp_transport,
+                    camera_runtime_config=camera_runtime_config,
                 ),
+                camera_runtime_config=camera_runtime_config,
                 source_type=rtsp.source_type,
             )
         )
@@ -204,7 +212,13 @@ def _is_active_value(value: Any) -> bool:
     return False
 
 
-def _config_version_hash(*, row: dict[str, Any], rtsp_url: str, rtsp_transport: str) -> str:
+def _config_version_hash(
+    *,
+    row: dict[str, Any],
+    rtsp_url: str,
+    rtsp_transport: str,
+    camera_runtime_config: dict[str, Any] | None = None,
+) -> str:
     relevant = {
         "camera_id": _optional_text(row.get("camera_id")),
         "external_camera_key": _optional_text(row.get("external_camera_key")),
@@ -213,6 +227,7 @@ def _config_version_hash(*, row: dict[str, Any], rtsp_url: str, rtsp_transport: 
         "name": _optional_text(row.get("name")),
         "rtsp_transport": rtsp_transport,
         "rtsp_url": rtsp_url,
+        "camera_runtime_config": camera_runtime_config or {},
     }
     payload = json.dumps(relevant, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()

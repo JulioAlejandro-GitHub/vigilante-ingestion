@@ -379,6 +379,7 @@ class ActiveCameraSupervisor:
             external_camera_key=camera.external_camera_key,
             site_id=camera.site_id,
             zone_id=camera.zone_id,
+            camera_runtime_config=dict(camera.camera_runtime_config or {}),
             rtsp_url=camera.rtsp_url,
             rtsp_transport=camera.rtsp_transport,
             replay=False,
