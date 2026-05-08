@@ -123,8 +123,10 @@ usa como último recurso para derivar campos faltantes.
 Si la fila trae `metadata.recognition`, ingestion sanea esa porción y la adjunta
 en cada `frame.ingested` como `payload.metadata.camera_runtime_config`. Solo se
 transportan campos allowlist para `recognition.face_tuning` y
-`recognition.vlm_policy`; URLs RTSP, secretos, tokens y claves desconocidas no
-se publican. El bloque incluye `config_source=api.camera.metadata`,
+`recognition.vlm_policy`, incluidos budgets VLM globales y por backend
+(`qwen_max_allowed_rss_mb`, `smolvlm_max_allowed_rss_mb`); URLs RTSP, secretos,
+tokens y claves desconocidas no se publican. El bloque incluye
+`config_source=api.camera.metadata`,
 `camera_config_version`, `config_hash` y `effective_config_hash` para que
 recognition pueda trazar el origen exacto de la configuración aplicada.
 

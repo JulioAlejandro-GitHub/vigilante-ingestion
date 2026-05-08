@@ -45,6 +45,18 @@ _VLM_POLICY_ALIASES: dict[str, tuple[str, ...]] = {
         "max_memory_mb",
         "vlm_max_allowed_rss_mb",
     ),
+    "qwen_max_allowed_rss_mb": (
+        "qwen_max_allowed_rss_mb",
+        "qwen_max_rss_mb",
+        "vlm_qwen_max_allowed_rss_mb",
+        "vlm_qwen_max_rss_mb",
+    ),
+    "smolvlm_max_allowed_rss_mb": (
+        "smolvlm_max_allowed_rss_mb",
+        "smolvlm_max_rss_mb",
+        "vlm_smolvlm_max_allowed_rss_mb",
+        "vlm_smolvlm_max_rss_mb",
+    ),
     "max_concurrent_inferences": (
         "max_concurrent_inferences",
         "max_concurrency",

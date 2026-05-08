@@ -30,6 +30,8 @@ def test_build_camera_runtime_config_maps_recognition_metadata() -> None:
                     "eligible_events": ["human_presence_no_face"],
                     "latency_budget_seconds": 12,
                     "memory_budget_mb": 4096,
+                    "qwen_max_allowed_rss_mb": 12288,
+                    "smolvlm_max_allowed_rss_mb": 10240,
                     "max_concurrency": 1,
                     "degradation_policy": "preferred_then_secondary_then_simple",
                     "api_key": "must-not-leak",
@@ -47,6 +49,8 @@ def test_build_camera_runtime_config_maps_recognition_metadata() -> None:
     assert recognition["vlm_policy"]["enable_for_event_types"] == ["human_presence_no_face"]
     assert recognition["vlm_policy"]["max_latency_seconds"] == 12
     assert recognition["vlm_policy"]["max_rss_mb"] == 4096
+    assert recognition["vlm_policy"]["qwen_max_allowed_rss_mb"] == 12288
+    assert recognition["vlm_policy"]["smolvlm_max_allowed_rss_mb"] == 10240
     assert recognition["vlm_policy"]["max_concurrent_inferences"] == 1
     assert "stream_url" not in str(runtime_config)
     assert "secret" not in str(runtime_config)
