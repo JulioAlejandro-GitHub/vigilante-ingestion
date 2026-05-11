@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -123,6 +124,68 @@ def test_build_frame_ingested_event_attaches_camera_runtime_config(tmp_path) -> 
     assert runtime_config["camera_config_version"] == "ops-v1"
     assert runtime_config["recognition"]["face_tuning"]["det_size"] == "320,320"
     assert runtime_config["recognition"]["vlm_policy"]["backend"] == "simple"
+
+
+def test_build_frame_ingested_event_attaches_configured_run_id(tmp_path) -> None:
+    frame = _frame()
+    stored = _stored_frame(tmp_path)
+    config = IngestionConfig(
+        source_file=Path("samples/cam01.mp4"),
+        camera_id=CAMERA_ID,
+        run_id="smoke-run-1",
+        run_id_source="vigilante_stack_smoke",
+    )
+
+    event = build_frame_ingested_event(frame=frame, stored_frame=stored, config=config)
+
+    assert event["context"]["run_id"] == "smoke-run-1"
+    metadata = event["payload"]["metadata"]
+    assert metadata["pipeline"]["run_id"] == "smoke-run-1"
+    assert metadata["correlation"] == {
+        "run_id": "smoke-run-1",
+        "source": "vigilante_stack_smoke",
+    }
+    assert metadata["smoke"]["run_id"] == "smoke-run-1"
+
+
+def test_build_frame_ingested_event_reads_active_smoke_correlation_file(tmp_path) -> None:
+    correlation_path = tmp_path / "smoke-correlation.json"
+    correlation_path.write_text(
+        json.dumps(
+            {
+                "run_id": "smoke-file-run",
+                "source": "vigilante_stack_smoke",
+                "created_at": "2026-05-11T10:00:00Z",
+                "expires_at_epoch": int(time.time()) + 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    frame = _frame()
+    stored = _stored_frame(tmp_path)
+    config = IngestionConfig(
+        source_file=Path("samples/cam01.mp4"),
+        camera_id=CAMERA_ID,
+        smoke_correlation_path=correlation_path,
+    )
+
+    event = build_frame_ingested_event(frame=frame, stored_frame=stored, config=config)
+
+    assert event["context"]["run_id"] == "smoke-file-run"
+    assert event["payload"]["metadata"]["pipeline"]["run_id"] == "smoke-file-run"
+    assert event["payload"]["metadata"]["smoke"]["created_at"] == "2026-05-11T10:00:00Z"
+
+
+def test_build_frame_ingested_event_ignores_missing_run_id_for_backward_compatibility(tmp_path) -> None:
+    frame = _frame()
+    stored = _stored_frame(tmp_path)
+    config = IngestionConfig(source_file=Path("samples/cam01.mp4"), camera_id=CAMERA_ID)
+
+    event = build_frame_ingested_event(frame=frame, stored_frame=stored, config=config)
+
+    assert "run_id" not in event["context"]
+    assert "pipeline" not in event["payload"]["metadata"]
+    assert "smoke" not in event["payload"]["metadata"]
 
 
 def test_outbox_file_publisher_writes_jsonl(tmp_path) -> None:

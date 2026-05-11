@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Callable
 
+from app.correlation import extract_run_id
 from app.messaging.topology import FrameIngestedTopology, declare_frame_ingested_topology
 
 logger = logging.getLogger(__name__)
@@ -43,9 +44,13 @@ class RabbitMQFrameIngestedPublisher:
             mandatory=True,
         )
         self.published_count += 1
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        run_id = extract_run_id(event) or ""
         logger.info(
-            "frame_ingested_published_rabbitmq event_id=%s exchange=%s routing_key=%s count=%s",
+            "frame_ingested_published_rabbitmq event_id=%s run_id=%s frame_ref=%s exchange=%s routing_key=%s count=%s",
             event.get("event_id"),
+            run_id,
+            payload.get("frame_ref") or payload.get("frame_uri") or "",
             self.topology.exchange,
             self.topology.routing_key,
             self.published_count,
@@ -96,6 +101,14 @@ class RabbitMQFrameIngestedPublisher:
             return None
 
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        run_id = extract_run_id(event)
+        headers = {
+            "event_type": event.get("event_type"),
+            "event_version": event.get("event_version"),
+            "camera_id": payload.get("camera_id"),
+        }
+        if run_id:
+            headers["run_id"] = run_id
         return pika.BasicProperties(
             app_id="vigilante-ingestion",
             content_type="application/json",
@@ -103,9 +116,5 @@ class RabbitMQFrameIngestedPublisher:
             message_id=str(event.get("event_id", "")),
             timestamp=None,
             type=str(event.get("event_type", "frame.ingested")),
-            headers={
-                "event_type": event.get("event_type"),
-                "event_version": event.get("event_version"),
-                "camera_id": payload.get("camera_id"),
-            },
+            headers=headers,
         )

@@ -117,6 +117,9 @@ class IngestionConfig:
     rabbitmq_frame_dlx: str = "vigilante.frames.dlx"
     rabbitmq_frame_dlq: str = "vigilante.recognition.frame_ingested.dlq"
     rabbitmq_frame_dlq_routing_key: str = "frame.ingested.dlq"
+    run_id: str | None = None
+    run_id_source: str | None = None
+    smoke_correlation_path: Path | None = None
     log_level: str = "INFO"
 
     def __post_init__(self) -> None:
@@ -243,6 +246,13 @@ def config_from_env() -> IngestionConfig:
         rabbitmq_frame_dlx=os.getenv("RABBITMQ_FRAME_DLX", "vigilante.frames.dlx"),
         rabbitmq_frame_dlq=os.getenv("RABBITMQ_FRAME_DLQ", "vigilante.recognition.frame_ingested.dlq"),
         rabbitmq_frame_dlq_routing_key=os.getenv("RABBITMQ_FRAME_DLQ_ROUTING_KEY", "frame.ingested.dlq"),
+        run_id=os.getenv("INGESTION_RUN_ID"),
+        run_id_source=os.getenv("INGESTION_RUN_ID_SOURCE"),
+        smoke_correlation_path=(
+            Path(os.getenv("INGESTION_SMOKE_CORRELATION_PATH"))
+            if os.getenv("INGESTION_SMOKE_CORRELATION_PATH")
+            else None
+        ),
         log_level=os.getenv("INGESTION_LOG_LEVEL", "INFO"),
     )
 

@@ -90,6 +90,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rabbitmq-vhost", help="RabbitMQ virtual host.")
     parser.add_argument("--rabbitmq-frame-exchange", help="RabbitMQ exchange for frame.ingested.")
     parser.add_argument("--rabbitmq-frame-routing-key", help="RabbitMQ routing key for frame.ingested.")
+    parser.add_argument("--run-id", help="Optional pipeline/smoke run_id to attach to emitted frame.ingested events.")
+    parser.add_argument("--run-id-source", help="Optional source label for --run-id correlation metadata.")
+    parser.add_argument(
+        "--smoke-correlation-path",
+        type=Path,
+        help="Optional JSON token path read at publish time for smoke run_id correlation.",
+    )
     parser.add_argument("--log-level", help="Python log level.")
     return parser
 
@@ -138,6 +145,9 @@ def _merge_cli(config, args):
         "rabbitmq_vhost": args.rabbitmq_vhost,
         "rabbitmq_frame_exchange": args.rabbitmq_frame_exchange,
         "rabbitmq_frame_routing_key": args.rabbitmq_frame_routing_key,
+        "run_id": args.run_id,
+        "run_id_source": args.run_id_source,
+        "smoke_correlation_path": args.smoke_correlation_path,
         "log_level": args.log_level,
     }
     updates.update({key: value for key, value in mapping.items() if value is not None})

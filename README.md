@@ -64,11 +64,29 @@ Copia `.env.example` a `.env` y ajusta:
 - `INGESTION_REPLAY_START_AT`: base temporal del replay.
 - `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`,
   `RABBITMQ_VHOST`: conexión AMQP local.
+- `INGESTION_RUN_ID`: `run_id` opcional para etiquetar todos los
+  `frame.ingested` emitidos por el proceso.
+- `INGESTION_SMOKE_CORRELATION_PATH`: ruta JSON opcional leída en cada frame
+  para que `vigilante_stack.sh smoke` adjunte dinámicamente un `run_id` por
+  corrida sin reiniciar ingestion.
 
 En `file_replay` y `rtsp`, `camera_id` debe ser un UUID real existente en
 `api.camera`. En `active_cameras`, déjalo vacío para cargar todas las cámaras
 RTSP activas, o úsalo como filtro opcional junto con `INGESTION_SITE_ID`,
 `INGESTION_ZONE_ID` e `INGESTION_EXTERNAL_CAMERA_KEY`.
+
+## Correlación de smoke / pipeline
+
+Cuando hay un `run_id` activo, ingestion lo adjunta sin cambiar schema:
+
+- `context.run_id`
+- `payload.metadata.pipeline.run_id`
+- `payload.metadata.correlation.run_id`
+- `payload.metadata.smoke.run_id` cuando el origen es `vigilante_stack_smoke`
+
+El publisher RabbitMQ además deja `run_id` en headers y en el log
+`frame_ingested_published_rabbitmq event_id=... run_id=... frame_ref=...`.
+Si no existe `run_id`, el evento mantiene el contrato anterior.
 
 ## Sample local
 

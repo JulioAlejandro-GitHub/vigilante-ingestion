@@ -9,6 +9,7 @@ from app.capture.reconnect_policy import ReconnectPolicy
 from app.capture.rtsp_source import JpegMetadataError, RtspSource, mask_rtsp_credentials
 from app.capture.stream_reader import StreamOpenError, StreamReadError
 from app.config import IngestionConfig
+from app.correlation import extract_run_id
 from app.publisher.frame_ingested_publisher import build_frame_ingested_event
 from app.publisher.publish_mode import FrameIngestedPublisher, PublishMode
 from app.storage.frame_storage import FrameStorage
@@ -274,7 +275,13 @@ class RtspRunner:
             )
             raise
         counters.events_published += 1
-        logger.info("rtsp_frame_published event_id=%s", event.get("event_id"))
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        logger.info(
+            "rtsp_frame_published event_id=%s run_id=%s frame_ref=%s",
+            event.get("event_id"),
+            extract_run_id(event) or "",
+            payload.get("frame_ref") or payload.get("frame_uri") or "",
+        )
 
     def _emit_lifecycle(self, event_name: str, counters: RtspCounters, **payload: Any) -> None:
         event_payload: dict[str, Any] = {
