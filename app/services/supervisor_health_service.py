@@ -63,6 +63,7 @@ def _camera_snapshot_to_dict(snapshot: CameraWorkerSnapshot) -> dict[str, Any]:
         "site_id": snapshot.site_id,
         "zone_id": snapshot.zone_id,
         "name": snapshot.name,
+        "is_smoke_ready": snapshot.is_smoke_ready,
         "is_desired_active": snapshot.is_desired_active,
         "worker_state": snapshot.worker_state,
         "last_started_at": _format_optional_datetime(snapshot.last_started_at),

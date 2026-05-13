@@ -32,6 +32,7 @@ def test_camera_health_reflects_state_transitions() -> None:
     health = build_camera_health([state.snapshot()])[0]
 
     assert health["worker_state"] == "running"
+    assert health["is_smoke_ready"] is False
     assert health["is_desired_active"] is True
     assert health["last_started_at"] is not None
     assert health["last_connected_at"] is not None
@@ -111,6 +112,7 @@ def _camera(camera_id: str) -> ActiveCamera:
         site_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         zone_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         name=f"Camera {camera_id[:4]}",
+        is_smoke_ready=False,
         rtsp_url=f"rtsp://admin:secret@camera-{camera_id[:4]}.local:554/live",
         safe_rtsp_url=f"rtsp://admin:***@camera-{camera_id[:4]}.local:554/live",
         rtsp_transport="tcp",

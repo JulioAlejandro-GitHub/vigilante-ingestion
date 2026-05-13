@@ -173,6 +173,7 @@ def _camera(camera_id: str) -> ActiveCamera:
         site_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         zone_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         name=f"Camera {camera_id[:4]}",
+        is_smoke_ready=False,
         rtsp_url=f"rtsp://admin:secret@camera-{camera_id[:4]}.local:554/live",
         safe_rtsp_url=f"rtsp://admin:***@camera-{camera_id[:4]}.local:554/live",
         rtsp_transport="tcp",

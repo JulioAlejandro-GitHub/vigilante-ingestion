@@ -75,6 +75,21 @@ En `file_replay` y `rtsp`, `camera_id` debe ser un UUID real existente en
 RTSP activas, o úsalo como filtro opcional junto con `INGESTION_SITE_ID`,
 `INGESTION_ZONE_ID` e `INGESTION_EXTERNAL_CAMERA_KEY`.
 
+Para el smoke E2E local, prepara primero una cámara marcada como smoke-ready:
+
+```bash
+cd ../GIT
+./vigilante_stack.sh prepare-smoke-camera
+```
+
+Ese flujo crea o repara una cámara visible para el usuario demo y activa para
+`active_cameras`. `vigilante_stack.sh up` lee
+`.local-logs/run/smoke-camera.env` y filtra ingestion por ese `camera_id` si
+`REAL_CAMERA_ID` no está definido. El health de ingestion expone
+`is_smoke_ready`, `is_desired_active`, `worker_state`, `events_published` y
+`last_publish_at` para diagnosticar `smoke_camera_not_active_in_ingestion` o
+`smoke_camera_rtsp_not_publishing`.
+
 ## Correlación de smoke / pipeline
 
 Cuando hay un `run_id` activo, ingestion lo adjunta sin cambiar schema:

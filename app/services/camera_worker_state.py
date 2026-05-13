@@ -15,6 +15,7 @@ class CameraWorkerSnapshot:
     site_id: str | None
     zone_id: str | None
     name: str | None
+    is_smoke_ready: bool
     is_desired_active: bool
     worker_state: str
     status: str
@@ -150,6 +151,7 @@ class CameraWorkerState:
                 site_id=self.camera.site_id,
                 zone_id=self.camera.zone_id,
                 name=self.camera.name,
+                is_smoke_ready=self.camera.is_smoke_ready,
                 is_desired_active=self.is_desired_active,
                 worker_state=self.status,
                 status=self.status,
