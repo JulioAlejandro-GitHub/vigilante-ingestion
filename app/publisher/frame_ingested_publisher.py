@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -8,8 +9,11 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from app.capture.rtsp_source import mask_rtsp_credentials
 from app.config import IngestionConfig, format_datetime
 from app.correlation import apply_ingestion_correlation, load_ingestion_correlation
+from app.logging_config import compact_value, event_log_fields
 from app.models.frame import CapturedFrame, StoredFrame
 from app.services.camera_runtime_config_mapper import RUNTIME_CONFIG_METADATA_KEY
+
+logger = logging.getLogger(__name__)
 
 
 class OutboxFilePublisher:
@@ -23,6 +27,17 @@ class OutboxFilePublisher:
         with self.path.open("a", encoding="utf-8") as outbox_file:
             outbox_file.write(json.dumps(event, sort_keys=True, separators=(",", ":")))
             outbox_file.write("\n")
+        fields = event_log_fields(event)
+        logger.info(
+            "frame_ingested_published_jsonl event_id=%s run_id=%s camera_id=%s frame_ref=%s outbox=%s",
+            fields["event_id"],
+            fields["run_id"],
+            fields["camera_id"],
+            compact_value(fields["frame_ref"]),
+            compact_value(self.path),
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("frame_ingested_payload event_id=%s payload=%s", fields["event_id"], json.dumps(event, sort_keys=True))
 
 
 def build_frame_ingested_event(

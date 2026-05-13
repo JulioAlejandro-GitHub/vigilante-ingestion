@@ -5,6 +5,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from app.routes.health import SupervisorHealthHttpServer
+from app.logging_config import current_log_level_name, set_log_level
 from app.services.active_camera_loader import ActiveCamera
 from app.services.camera_worker_state import CameraWorkerState
 from app.services.supervisor_health_service import (
@@ -100,8 +101,49 @@ def test_health_http_server_exposes_summary_and_cameras() -> None:
     assert full["summary"]["desired_active_cameras"] == 1
 
 
+def test_health_http_server_updates_log_level(tmp_path) -> None:
+    document = build_health_document(
+        [],
+        SupervisorRuntimeHealth(
+            cameras_loaded=0,
+            desired_active_cameras=0,
+            workers_running=0,
+            last_refresh_at=None,
+            last_refresh_change_count=0,
+        ),
+    )
+    previous_level = current_log_level_name()
+    server = SupervisorHealthHttpServer(
+        host="127.0.0.1",
+        port=0,
+        health_provider=lambda: document,
+        runtime_log_level_path=tmp_path / "log-level",
+    )
+    server.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.bound_port}"
+        response = _post_json(f"{base_url}/admin/log-level", {"level": "DEBUG"})
+        assert response["level"] == "DEBUG"
+        assert current_log_level_name() == "DEBUG"
+        assert (tmp_path / "log-level").read_text(encoding="utf-8").strip() == "DEBUG"
+    finally:
+        server.stop()
+        set_log_level(previous_level, source="test_restore", announce=False)
+
+
 def _get_json(url: str):
     with urllib.request.urlopen(url, timeout=2) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _post_json(url: str, payload: dict):
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=2) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

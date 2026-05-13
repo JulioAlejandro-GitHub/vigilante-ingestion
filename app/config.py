@@ -121,6 +121,8 @@ class IngestionConfig:
     run_id_source: str | None = None
     smoke_correlation_path: Path | None = None
     log_level: str = "INFO"
+    runtime_log_level_path: Path = Path(".runtime/log-level")
+    runtime_log_level_poll_seconds: float = 2.0
 
     def __post_init__(self) -> None:
         if self.capture_fps <= 0:
@@ -253,7 +255,11 @@ def config_from_env() -> IngestionConfig:
             if os.getenv("INGESTION_SMOKE_CORRELATION_PATH")
             else None
         ),
-        log_level=os.getenv("INGESTION_LOG_LEVEL", "INFO"),
+        log_level=os.getenv("LOG_LEVEL", os.getenv("INGESTION_LOG_LEVEL", "INFO")),
+        runtime_log_level_path=Path(os.getenv("RUNTIME_LOG_LEVEL_PATH", os.getenv("INGESTION_RUNTIME_LOG_LEVEL_PATH", ".runtime/log-level"))),
+        runtime_log_level_poll_seconds=float(
+            os.getenv("RUNTIME_LOG_LEVEL_POLL_SECONDS", os.getenv("INGESTION_RUNTIME_LOG_LEVEL_POLL_SECONDS", "2.0"))
+        ),
     )
 
 

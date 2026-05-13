@@ -5,6 +5,7 @@ import logging
 from typing import Any, Callable
 
 from app.correlation import extract_run_id
+from app.logging_config import compact_value, event_log_fields
 from app.messaging.topology import FrameIngestedTopology, declare_frame_ingested_topology
 
 logger = logging.getLogger(__name__)
@@ -44,17 +45,19 @@ class RabbitMQFrameIngestedPublisher:
             mandatory=True,
         )
         self.published_count += 1
-        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        fields = event_log_fields(event)
         run_id = extract_run_id(event) or ""
         logger.info(
             "frame_ingested_published_rabbitmq event_id=%s run_id=%s frame_ref=%s exchange=%s routing_key=%s count=%s",
-            event.get("event_id"),
+            fields["event_id"],
             run_id,
-            payload.get("frame_ref") or payload.get("frame_uri") or "",
+            compact_value(fields["frame_ref"]),
             self.topology.exchange,
             self.topology.routing_key,
             self.published_count,
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("frame_ingested_payload event_id=%s payload=%s", fields["event_id"], json.dumps(event, sort_keys=True))
 
     def close(self) -> None:
         if self._connection is not None and getattr(self._connection, "is_closed", False) is False:

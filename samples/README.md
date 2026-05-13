@@ -17,3 +17,11 @@ ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc=size=320x180:rate=10 
 `cameras.example.json` incluye un perfil `file_replay` y un perfil `rtsp` de
 referencia. El perfil RTSP espera una fuente local en
 `rtsp://127.0.0.1:8554/cam01`.
+
+Desde el root del workspace, la fuente RTSP de laboratorio se controla con:
+
+```bash
+./vigilante_stack.sh start-smoke-rtsp
+./vigilante_stack.sh check-smoke-rtsp
+./vigilante_stack.sh stop-smoke-rtsp
+```

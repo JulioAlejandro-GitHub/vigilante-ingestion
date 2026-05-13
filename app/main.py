@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
 
 from app.config import config_from_env, parse_bool, parse_datetime
+from app.logging_config import configure_logging
 from app.messaging.topology import FrameIngestedTopology
 from app.publisher.frame_ingested_publisher import OutboxFilePublisher
 from app.publisher.publish_mode import CompositePublisher, PublishMode
@@ -25,7 +25,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         config = apply_camera_database_config(_merge_cli(config_from_env(), args))
-        logging.basicConfig(level=getattr(logging, config.log_level.upper(), logging.INFO))
+        configure_logging(
+            config.log_level,
+            runtime_level_path=config.runtime_log_level_path,
+            poll_seconds=config.runtime_log_level_poll_seconds,
+        )
         if config.source_type == "active_cameras":
             runner = _build_runner(config=config)
         else:
@@ -98,6 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional JSON token path read at publish time for smoke run_id correlation.",
     )
     parser.add_argument("--log-level", help="Python log level.")
+    parser.add_argument("--runtime-log-level-path", type=Path, help="Runtime log-level file watched without restart.")
+    parser.add_argument("--runtime-log-level-poll-seconds", type=float, help="Seconds between runtime log-level file checks.")
     return parser
 
 
@@ -149,6 +155,8 @@ def _merge_cli(config, args):
         "run_id_source": args.run_id_source,
         "smoke_correlation_path": args.smoke_correlation_path,
         "log_level": args.log_level,
+        "runtime_log_level_path": args.runtime_log_level_path,
+        "runtime_log_level_poll_seconds": args.runtime_log_level_poll_seconds,
     }
     updates.update({key: value for key, value in mapping.items() if value is not None})
     if requested_source_type == "active_cameras" and config.source_type != "active_cameras":

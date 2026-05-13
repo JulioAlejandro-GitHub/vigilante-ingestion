@@ -10,6 +10,7 @@ from app.capture.rtsp_source import JpegMetadataError, RtspSource, mask_rtsp_cre
 from app.capture.stream_reader import StreamOpenError, StreamReadError
 from app.config import IngestionConfig
 from app.correlation import extract_run_id
+from app.logging_config import compact_value
 from app.publisher.frame_ingested_publisher import build_frame_ingested_event
 from app.publisher.publish_mode import FrameIngestedPublisher, PublishMode
 from app.storage.frame_storage import FrameStorage
@@ -87,8 +88,9 @@ class RtspRunner:
                 counters.stream_opens += 1
                 stream_frames = 0
                 logger.info(
-                    "rtsp_stream_connecting url=%s attempt=%s max_frames_remaining=%s",
-                    self.safe_rtsp_url,
+                    "rtsp_stream_connecting camera_id=%s url=%s attempt=%s max_frames_remaining=%s",
+                    self.config.camera_id,
+                    compact_value(self.safe_rtsp_url),
                     counters.stream_opens,
                     remaining if remaining is not None else "unbounded",
                 )
@@ -108,8 +110,9 @@ class RtspRunner:
                         if stream_frames == 0:
                             reconnect_policy.reset()
                             logger.info(
-                                "rtsp_stream_connected url=%s stream_open_count=%s",
-                                self.safe_rtsp_url,
+                                "rtsp_stream_connected camera_id=%s url=%s stream_open_count=%s",
+                                self.config.camera_id,
+                                compact_value(self.safe_rtsp_url),
                                 counters.stream_opens,
                             )
                             self._emit_lifecycle(
@@ -127,7 +130,7 @@ class RtspRunner:
                         self._publish_event(event, counters)
                         counters.frames_captured += 1
                         stream_frames += 1
-                        logger.info(
+                        logger.debug(
                             "rtsp_frame_ingested camera_id=%s sample_index=%s frame_ref=%s",
                             frame.camera_id,
                             frame.sample_index,
@@ -147,8 +150,9 @@ class RtspRunner:
                         break
                     counters.read_failures += 1
                     logger.warning(
-                        "rtsp_stream_disconnected url=%s error_type=%s error=%s frames_in_stream=%s",
-                        self.safe_rtsp_url,
+                        "rtsp_stream_disconnected camera_id=%s url=%s error_type=%s error=%s frames_in_stream=%s",
+                        self.config.camera_id,
+                        compact_value(self.safe_rtsp_url),
                         type(exc).__name__,
                         exc,
                         stream_frames,
@@ -162,16 +166,18 @@ class RtspRunner:
                     )
                     if not reconnect_policy.can_retry():
                         logger.error(
-                            "rtsp_reconnect_exhausted url=%s attempts=%s",
-                            self.safe_rtsp_url,
+                            "rtsp_reconnect_exhausted camera_id=%s url=%s attempts=%s",
+                            self.config.camera_id,
+                            compact_value(self.safe_rtsp_url),
                             reconnect_policy.attempts,
                         )
                         raise
                     delay = reconnect_policy.next_delay()
                     counters.reconnect_attempts += 1
                     logger.info(
-                        "rtsp_reconnect_scheduled url=%s attempt=%s delay_seconds=%s",
-                        self.safe_rtsp_url,
+                        "rtsp_reconnect_scheduled camera_id=%s url=%s attempt=%s delay_seconds=%s",
+                        self.config.camera_id,
+                        compact_value(self.safe_rtsp_url),
                         counters.reconnect_attempts,
                         delay,
                     )
@@ -189,9 +195,10 @@ class RtspRunner:
             self._emit_lifecycle("camera_worker_stopped", counters)
 
         logger.info(
-            "rtsp_ingestion_summary url=%s frames_captured=%s events_published=%s stream_opens=%s "
+            "rtsp_ingestion_summary camera_id=%s url=%s frames_captured=%s events_published=%s stream_opens=%s "
             "reconnect_attempts=%s read_failures=%s store_failures=%s publish_failures=%s",
-            self.safe_rtsp_url,
+            self.config.camera_id,
+            compact_value(self.safe_rtsp_url),
             counters.frames_captured,
             counters.events_published,
             counters.stream_opens,
@@ -276,7 +283,7 @@ class RtspRunner:
             raise
         counters.events_published += 1
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
-        logger.info(
+        logger.debug(
             "rtsp_frame_published event_id=%s run_id=%s frame_ref=%s",
             event.get("event_id"),
             extract_run_id(event) or "",
@@ -298,7 +305,6 @@ class RtspRunner:
             "camera_stream_connected",
             "camera_stream_disconnected",
             "camera_stream_reconnect_scheduled",
-            "camera_frame_ingested",
             "camera_worker_stopped",
         }:
             logger.info(
@@ -311,6 +317,16 @@ class RtspRunner:
                 self.config.zone_id or "",
                 counters.stream_opens,
                 counters.reconnect_attempts,
+                counters.frames_captured,
+                counters.events_published,
+            )
+        elif event_name == "camera_frame_ingested":
+            logger.debug(
+                "%s camera_id=%s sample_index=%s frame_ref=%s frames_captured=%s events_published=%s",
+                event_name,
+                self.config.camera_id,
+                payload.get("sample_index", ""),
+                payload.get("frame_ref", ""),
                 counters.frames_captured,
                 counters.events_published,
             )

@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from socketserver import TCPServer
 from threading import Thread
 from typing import Any, Callable
 from urllib.parse import urlparse
+
+from app.logging_config import current_log_level_name, write_runtime_log_level
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +28,18 @@ class _HealthThreadingHTTPServer(ThreadingHTTPServer):
 
 
 class SupervisorHealthHttpServer:
-    def __init__(self, *, host: str, port: int, health_provider: HealthProvider) -> None:
+    def __init__(
+        self,
+        *,
+        host: str,
+        port: int,
+        health_provider: HealthProvider,
+        runtime_log_level_path: str | Path = ".runtime/log-level",
+    ) -> None:
         self.host = host
         self.port = port
         self.health_provider = health_provider
+        self.runtime_log_level_path = Path(runtime_log_level_path)
         self._server: ThreadingHTTPServer | None = None
         self._thread: Thread | None = None
 
@@ -43,6 +54,7 @@ class SupervisorHealthHttpServer:
             return
 
         provider = self.health_provider
+        runtime_log_level_path = self.runtime_log_level_path
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
@@ -54,8 +66,31 @@ class SupervisorHealthHttpServer:
                     _write_json(self, 200, document.get("summary", {}))
                 elif path == "/health/cameras":
                     _write_json(self, 200, document.get("cameras", []))
+                elif path == "/admin/log-level":
+                    _write_json(
+                        self,
+                        200,
+                        {"level": current_log_level_name(), "runtime_path": str(runtime_log_level_path)},
+                    )
                 else:
                     _write_json(self, 404, {"error": "not_found"})
+
+            def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
+                path = urlparse(self.path).path
+                if path != "/admin/log-level":
+                    _write_json(self, 404, {"error": "not_found"})
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    length = 0
+                try:
+                    payload = json.loads(self.rfile.read(length).decode("utf-8") if length > 0 else "{}")
+                    level = write_runtime_log_level(runtime_log_level_path, str(payload.get("level", "")), source="admin_http")
+                except (json.JSONDecodeError, ValueError) as exc:
+                    _write_json(self, 422, {"error": "invalid_log_level", "message": str(exc)})
+                    return
+                _write_json(self, 200, {"level": level, "runtime_path": str(runtime_log_level_path)})
 
             def log_message(self, format: str, *args) -> None:  # noqa: A002 - stdlib signature
                 logger.debug("health_http_request " + format, *args)

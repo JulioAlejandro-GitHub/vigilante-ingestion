@@ -101,7 +101,7 @@ class MinioFrameStorage:
             )
             raise
 
-        logger.info(
+        logger.debug(
             "frame_uploaded storage_backend=%s bucket=%s object_key=%s size_bytes=%s",
             self.backend_name,
             self.bucket,

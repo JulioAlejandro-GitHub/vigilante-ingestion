@@ -79,7 +79,7 @@ class RtspSource:
         session_started_at = self._clock()
         session_frame_index = 0
         reader.open()
-        logger.info("rtsp_stream_opened url=%s capture_fps=%s", self.safe_rtsp_url, self.capture_fps)
+        logger.debug("rtsp_stream_opened url=%s capture_fps=%s", self.safe_rtsp_url, self.capture_fps)
         try:
             while max_frames is None or session_frame_index < max_frames:
                 image_bytes = reader.read_frame()
@@ -108,7 +108,7 @@ class RtspSource:
                 session_frame_index += 1
         finally:
             reader.close()
-            logger.info("rtsp_stream_closed url=%s frames_read=%s", self.safe_rtsp_url, session_frame_index)
+            logger.debug("rtsp_stream_closed url=%s frames_read=%s", self.safe_rtsp_url, session_frame_index)
 
     def _build_reader(self) -> FrameStreamReader:
         if self._reader_factory is not None:

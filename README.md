@@ -69,11 +69,37 @@ Copia `.env.example` a `.env` y ajusta:
 - `INGESTION_SMOKE_CORRELATION_PATH`: ruta JSON opcional leída en cada frame
   para que `vigilante_stack.sh smoke` adjunte dinámicamente un `run_id` por
   corrida sin reiniciar ingestion.
+- `INGESTION_LOG_LEVEL`: nivel inicial, por defecto `INFO`.
+- `INGESTION_RUNTIME_LOG_LEVEL_PATH`: archivo observado para cambiar nivel sin
+  reiniciar, por defecto `.runtime/log-level`.
+- `INGESTION_RUNTIME_LOG_LEVEL_POLL_SECONDS`: intervalo de lectura del archivo.
 
 En `file_replay` y `rtsp`, `camera_id` debe ser un UUID real existente en
 `api.camera`. En `active_cameras`, déjalo vacío para cargar todas las cámaras
 RTSP activas, o úsalo como filtro opcional junto con `INGESTION_SITE_ID`,
 `INGESTION_ZONE_ID` e `INGESTION_EXTERNAL_CAMERA_KEY`.
+
+## Logging operativo
+
+`INFO` queda reservado para el flujo principal: conexión RTSP, publish, reload
+del supervisor, health y resumen de workers. Los payloads completos de
+`frame.ingested`, `camera_runtime_config`, listas largas y detalle de storage se
+emiten solo en `DEBUG`.
+
+Para cambiar nivel sin reiniciar:
+
+```bash
+printf 'DEBUG\n' > .runtime/log-level
+printf 'INFO\n' > .runtime/log-level
+```
+
+Si el health HTTP está activo, también se puede usar:
+
+```bash
+curl -X POST http://127.0.0.1:8088/admin/log-level \
+  -H "Content-Type: application/json" \
+  -d '{"level":"DEBUG"}'
+```
 
 Para el smoke E2E local, prepara primero una cámara marcada como smoke-ready:
 
@@ -116,6 +142,15 @@ Si no tienes un video real liviano, genera uno reproducible:
 ```bash
 mkdir -p samples
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc=size=320x180:rate=10 -t 12 -pix_fmt yuv420p samples/cam01.mp4
+```
+
+El stack local publica ese asset como RTSP de laboratorio con MediaMTX + FFmpeg:
+
+```bash
+cd ../GIT
+./vigilante_stack.sh start-smoke-rtsp
+./vigilante_stack.sh check-smoke-rtsp
+./vigilante_stack.sh stop-smoke-rtsp
 ```
 
 ## Ejecución MP4

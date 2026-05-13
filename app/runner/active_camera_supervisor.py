@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from app.capture.reconnect_policy import ReconnectPolicy
 from app.config import IngestionConfig
+from app.logging_config import compact_value
 from app.publisher.publish_mode import FrameIngestedPublisher, PublishMode
 from app.routes.health import SupervisorHealthHttpServer
 from app.runner.rtsp_runner import RtspLifecycleCallback, RtspRunner, ShouldStop
@@ -251,10 +252,15 @@ class ActiveCameraSupervisor:
 
         thread.start()
         logger.info(
-            "camera_worker_thread_started camera_id=%s external_camera_key=%s config_version_hash=%s",
+            "camera_worker_thread_started camera_id=%s external_camera_key=%s",
             camera.camera_id,
             camera.external_camera_key or "",
+        )
+        logger.debug(
+            "camera_worker_config camera_id=%s config_version_hash=%s runtime_config=%s",
+            camera.camera_id,
             camera.config_version_hash,
+            camera.camera_runtime_config or {},
         )
         return True
 
@@ -307,13 +313,18 @@ class ActiveCameraSupervisor:
         while not should_stop():
             state.mark("starting", desired_active=True)
             logger.info(
-                "camera_worker_starting camera_id=%s external_camera_key=%s site_id=%s zone_id=%s url=%s config_version_hash=%s",
+                "camera_worker_starting camera_id=%s external_camera_key=%s site_id=%s zone_id=%s url=%s",
                 camera.camera_id,
                 camera.external_camera_key or "",
                 camera.site_id or "",
                 camera.zone_id or "",
-                camera.safe_rtsp_url,
+                compact_value(camera.safe_rtsp_url),
+            )
+            logger.debug(
+                "camera_worker_starting_config camera_id=%s config_version_hash=%s runtime_config=%s",
+                camera.camera_id,
                 camera.config_version_hash,
+                camera.camera_runtime_config or {},
             )
             try:
                 storage = self.storage_factory(worker_config)
@@ -439,7 +450,7 @@ class ActiveCameraSupervisor:
             summary["last_refresh_change_count"],
         )
         for snapshot in self._snapshots():
-            logger.info(
+            logger.debug(
                 "camera_worker_status camera_id=%s external_camera_key=%s site_id=%s zone_id=%s status=%s "
                 "desired_active=%s frames_captured=%s events_published=%s reconnect_attempts=%s restart_attempts=%s",
                 snapshot.camera_id,
@@ -516,6 +527,7 @@ class ActiveCameraSupervisor:
             host=self.config.active_camera_health_host,
             port=self.config.active_camera_health_port,
             health_provider=self.health_document,
+            runtime_log_level_path=self.config.runtime_log_level_path,
         )
         self._health_server.start()
 
