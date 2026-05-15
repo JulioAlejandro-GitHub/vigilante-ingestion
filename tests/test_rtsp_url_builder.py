@@ -24,7 +24,7 @@ def test_builds_rtsp_url_from_structured_camera_columns() -> None:
             camera_user="admin",
             camera_secret=encrypted_secret,
             metadata={
-                "stream_url": "rtsp://wrong:wrong@10.0.0.1:8554/legacy",
+                "stream_url": "rtsp://wrong:wrong@10.0.0.1:554/legacy",
                 "camera_pass": "wrong",
             },
         ),
@@ -43,7 +43,7 @@ def test_falls_back_to_metadata_when_structured_columns_are_missing() -> None:
             metadata={
                 "source_type": "rtsp",
                 "camera_hostname": "camera.local",
-                "camera_port": "8554",
+                "camera_port": "554",
                 "camera_path": "live",
                 "camera_user": "operator",
                 "camera_pass": "legacy-secret",
@@ -55,8 +55,8 @@ def test_falls_back_to_metadata_when_structured_columns_are_missing() -> None:
         camera_secret_fernet_key=None,
     )
 
-    assert result.url == "rtsp://operator:legacy-secret@camera.local:8554/live?channel=2&subtype=1"
-    assert result.safe_url == "rtsp://operator:***@camera.local:8554/live?channel=2&subtype=1"
+    assert result.url == "rtsp://operator:legacy-secret@camera.local:554/live?channel=2&subtype=1"
+    assert result.safe_url == "rtsp://operator:***@camera.local:554/live?channel=2&subtype=1"
     assert result.rtsp_transport == "udp"
 
 

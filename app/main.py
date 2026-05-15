@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-type", choices=["file_replay", "video_file", "rtsp", "active_cameras"], help="Input source type.")
     parser.add_argument("--active-cameras", action="store_true", help="Run the active RTSP camera supervisor.")
     parser.add_argument("--source-file", type=Path, help="Local MP4 file to replay.")
-    parser.add_argument("--rtsp-url", help="RTSP input URL, e.g. rtsp://127.0.0.1:8554/cam01.")
+    parser.add_argument("--rtsp-url", help="RTSP input URL, e.g. rtsp://camera.local:554/live.")
     parser.add_argument("--rtsp-transport", choices=["tcp", "udp"], help="RTSP transport for FFmpeg.")
     parser.add_argument("--camera-db-url", help="PostgreSQL URL used to load structured RTSP config from api.camera.")
     parser.add_argument("--camera-db-schema", help="Schema that contains api.camera, default api.")
@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rtsp-max-reconnect-attempts", type=int, help="Optional reconnect cap. Omit for continuous retry.")
     parser.add_argument("--camera-id", help="Canonical UUID from api.camera.camera_id.")
     parser.add_argument("--fps", type=float, help="Frame capture frequency.")
-    parser.add_argument("--max-frames", type=int, help="Limit captured frames for tests or demos.")
+    parser.add_argument("--max-frames", type=int, help="Limit captured frames for bounded validations.")
     parser.add_argument("--storage-backend", choices=["local", "minio", "s3"], help="Frame storage backend.")
     parser.add_argument("--output-dir", type=Path, help="Local storage root directory.")
     parser.add_argument("--publish-mode", choices=[mode.value for mode in PublishMode], help="Publication mode: jsonl, rabbitmq or both.")
@@ -94,13 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rabbitmq-vhost", help="RabbitMQ virtual host.")
     parser.add_argument("--rabbitmq-frame-exchange", help="RabbitMQ exchange for frame.ingested.")
     parser.add_argument("--rabbitmq-frame-routing-key", help="RabbitMQ routing key for frame.ingested.")
-    parser.add_argument("--run-id", help="Optional pipeline/smoke run_id to attach to emitted frame.ingested events.")
+    parser.add_argument("--run-id", help="Optional pipeline run_id to attach to emitted frame.ingested events.")
     parser.add_argument("--run-id-source", help="Optional source label for --run-id correlation metadata.")
-    parser.add_argument(
-        "--smoke-correlation-path",
-        type=Path,
-        help="Optional JSON token path read at publish time for smoke run_id correlation.",
-    )
     parser.add_argument("--log-level", help="Python log level.")
     parser.add_argument("--runtime-log-level-path", type=Path, help="Runtime log-level file watched without restart.")
     parser.add_argument("--runtime-log-level-poll-seconds", type=float, help="Seconds between runtime log-level file checks.")
@@ -153,7 +148,6 @@ def _merge_cli(config, args):
         "rabbitmq_frame_routing_key": args.rabbitmq_frame_routing_key,
         "run_id": args.run_id,
         "run_id_source": args.run_id_source,
-        "smoke_correlation_path": args.smoke_correlation_path,
         "log_level": args.log_level,
         "runtime_log_level_path": args.runtime_log_level_path,
         "runtime_log_level_poll_seconds": args.runtime_log_level_poll_seconds,

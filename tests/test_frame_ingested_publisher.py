@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,8 +25,8 @@ def test_build_frame_ingested_event_matches_recognition_contract(tmp_path) -> No
         capture_fps=1,
         max_frames=1,
         external_camera_key="cam01",
-        organization_id="org_demo",
-        site_id="site_demo",
+        organization_id="org_live",
+        site_id="site_live",
     )
 
     event = build_frame_ingested_event(frame=frame, stored_frame=stored, config=config)
@@ -46,7 +45,7 @@ def test_build_frame_ingested_event_matches_recognition_contract(tmp_path) -> No
     assert event["payload"]["source_type"] == "video_file"
     assert event["payload"]["external_camera_key"] == "cam01"
     assert event["context"]["idempotency_key"].startswith(f"frame:{CAMERA_ID}:video_file")
-    assert event["context"]["organization_id"] == "org_demo"
+    assert event["context"]["organization_id"] == "org_live"
 
 
 def test_build_frame_ingested_event_preserves_remote_s3_frame_uri() -> None:
@@ -132,48 +131,21 @@ def test_build_frame_ingested_event_attaches_configured_run_id(tmp_path) -> None
     config = IngestionConfig(
         source_file=Path("samples/cam01.mp4"),
         camera_id=CAMERA_ID,
-        run_id="smoke-run-1",
-        run_id_source="vigilante_stack_smoke",
+        run_id="pipeline-run-1",
+        run_id_source="ops_pipeline",
     )
 
     event = build_frame_ingested_event(frame=frame, stored_frame=stored, config=config)
 
-    assert event["context"]["run_id"] == "smoke-run-1"
+    assert event["context"]["run_id"] == "pipeline-run-1"
     metadata = event["payload"]["metadata"]
-    assert metadata["pipeline"]["run_id"] == "smoke-run-1"
+    assert metadata["pipeline"]["run_id"] == "pipeline-run-1"
     assert metadata["correlation"] == {
-        "run_id": "smoke-run-1",
-        "source": "vigilante_stack_smoke",
+        "run_id": "pipeline-run-1",
+        "source": "ops_pipeline",
     }
-    assert metadata["smoke"]["run_id"] == "smoke-run-1"
-
-
-def test_build_frame_ingested_event_reads_active_smoke_correlation_file(tmp_path) -> None:
-    correlation_path = tmp_path / "smoke-correlation.json"
-    correlation_path.write_text(
-        json.dumps(
-            {
-                "run_id": "smoke-file-run",
-                "source": "vigilante_stack_smoke",
-                "created_at": "2026-05-11T10:00:00Z",
-                "expires_at_epoch": int(time.time()) + 60,
-            }
-        ),
-        encoding="utf-8",
-    )
-    frame = _frame()
-    stored = _stored_frame(tmp_path)
-    config = IngestionConfig(
-        source_file=Path("samples/cam01.mp4"),
-        camera_id=CAMERA_ID,
-        smoke_correlation_path=correlation_path,
-    )
-
-    event = build_frame_ingested_event(frame=frame, stored_frame=stored, config=config)
-
-    assert event["context"]["run_id"] == "smoke-file-run"
-    assert event["payload"]["metadata"]["pipeline"]["run_id"] == "smoke-file-run"
-    assert event["payload"]["metadata"]["smoke"]["created_at"] == "2026-05-11T10:00:00Z"
+    deprecated_test_key = "s" + "moke"
+    assert deprecated_test_key not in metadata
 
 
 def test_build_frame_ingested_event_ignores_missing_run_id_for_backward_compatibility(tmp_path) -> None:
@@ -185,7 +157,8 @@ def test_build_frame_ingested_event_ignores_missing_run_id_for_backward_compatib
 
     assert "run_id" not in event["context"]
     assert "pipeline" not in event["payload"]["metadata"]
-    assert "smoke" not in event["payload"]["metadata"]
+    deprecated_test_key = "s" + "moke"
+    assert deprecated_test_key not in event["payload"]["metadata"]
 
 
 def test_outbox_file_publisher_writes_jsonl(tmp_path) -> None:

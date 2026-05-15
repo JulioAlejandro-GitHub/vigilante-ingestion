@@ -118,7 +118,6 @@ def build_frame_ingested_event(
     correlation = load_ingestion_correlation(
         run_id=config.run_id,
         source=config.run_id_source,
-        correlation_path=config.smoke_correlation_path,
     )
     return apply_ingestion_correlation(event, correlation)
 

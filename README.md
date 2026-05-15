@@ -2,13 +2,15 @@
 
 ## Objetivo
 
-Ingestion de frames desde dos tipos de fuente:
+Ingestion de frames desde cámaras reales:
 
-- `file_replay`: MP4 local como cámara virtual, con replay determinístico.
-- `rtsp`: stream RTSP real/vivo, con captura continua, timeout de lectura y
-  reconexión con backoff simple.
 - `active_cameras`: supervisor local que lee cámaras RTSP activas desde
-  `vigilante_api.api.camera` y levanta un worker por cámara.
+  `vigilante_api.api.camera` y levanta un worker por cámara. Es el modo
+  operativo normal.
+- `rtsp`: stream RTSP real/vivo, con captura continua, timeout de lectura y
+  reconexión con backoff simple para una cámara específica.
+- `file_replay`: MP4 local con replay determinístico, reservado para tests y
+  desarrollo de componentes.
 
 Ambos modos muestrean frames a un FPS configurable, guardan evidencia mínima y
 emiten eventos `frame.ingested` consumibles por `vigilante-recognition`.
@@ -19,9 +21,8 @@ emiten eventos `frame.ingested` consumibles por `vigilante-recognition`.
 - FFmpeg y ffprobe disponibles en `PATH`
 - Entorno virtual local `.venv`
 
-El código de la app corre localmente, sin Docker. MinIO puede usarse si ya está
-levantado en el stack de soporte, pero el modo por defecto usa filesystem local.
-RabbitMQ se usa solo cuando `INGESTION_PUBLISH_MODE=rabbitmq|both`.
+El código de la app corre localmente, sin Docker. En operación con el stack
+local publica en RabbitMQ y guarda evidencia en MinIO.
 
 ## Instalación
 
@@ -35,8 +36,9 @@ pip install -r requirements.txt
 
 Copia `.env.example` a `.env` y ajusta:
 
-- `INGESTION_SOURCE_TYPE`: `file_replay`, `rtsp` o `active_cameras`.
-- `INGESTION_SOURCE_FILE`: MP4 local usado como cámara virtual.
+- `INGESTION_SOURCE_TYPE`: `active_cameras` por defecto; `rtsp` para una cámara
+  específica; `file_replay` solo para tests/desarrollo.
+- `INGESTION_SOURCE_FILE`: MP4 local usado solo en `file_replay`.
 - `INGESTION_RTSP_URL`: URL RTSP cuando no se use configuración desde `api.camera`.
 - `INGESTION_RTSP_TRANSPORT`: `tcp` o `udp`, por defecto `tcp`.
 - `INGESTION_CAMERA_DB_URL`: conexión a `vigilante_api` para leer `api.camera`.
@@ -59,16 +61,13 @@ Copia `.env.example` a `.env` y ajusta:
 - `INGESTION_LOCAL_STORAGE_DIR`: raíz de almacenamiento local.
 - `INGESTION_PUBLISH_MODE`: `jsonl`, `rabbitmq` o `both`.
 - `INGESTION_OUTBOX_PATH`: archivo JSONL donde se publican eventos.
-- `INGESTION_MAX_FRAMES`: límite opcional para demos y tests.
+- `INGESTION_MAX_FRAMES`: límite opcional para tests o ejecuciones acotadas.
 - `INGESTION_REPLAY`: `true` para timestamps determinísticos en `file_replay`.
 - `INGESTION_REPLAY_START_AT`: base temporal del replay.
 - `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`,
   `RABBITMQ_VHOST`: conexión AMQP local.
 - `INGESTION_RUN_ID`: `run_id` opcional para etiquetar todos los
   `frame.ingested` emitidos por el proceso.
-- `INGESTION_SMOKE_CORRELATION_PATH`: ruta JSON opcional leída en cada frame
-  para que `vigilante_stack.sh smoke` adjunte dinámicamente un `run_id` por
-  corrida sin reiniciar ingestion.
 - `INGESTION_LOG_LEVEL`: nivel inicial, por defecto `INFO`.
 - `INGESTION_RUNTIME_LOG_LEVEL_PATH`: archivo observado para cambiar nivel sin
   reiniciar, por defecto `.runtime/log-level`.
@@ -101,35 +100,19 @@ curl -X POST http://127.0.0.1:8088/admin/log-level \
   -d '{"level":"DEBUG"}'
 ```
 
-Para el smoke E2E local, prepara primero una cámara marcada como smoke-ready:
-
-```bash
-cd ../GIT
-./vigilante_stack.sh prepare-smoke-camera
-```
-
-Ese flujo crea o repara una cámara visible para el usuario demo y activa para
-`active_cameras`. `vigilante_stack.sh up` lee
-`.local-logs/run/smoke-camera.env` y filtra ingestion por ese `camera_id` si
-`REAL_CAMERA_ID` no está definido. El health de ingestion expone
-`is_smoke_ready`, `is_desired_active`, `worker_state`, `events_published` y
-`last_publish_at` para diagnosticar `smoke_camera_not_active_in_ingestion` o
-`smoke_camera_rtsp_not_publishing`.
-
-## Correlación de smoke / pipeline
+## Correlación de pipeline
 
 Cuando hay un `run_id` activo, ingestion lo adjunta sin cambiar schema:
 
 - `context.run_id`
 - `payload.metadata.pipeline.run_id`
 - `payload.metadata.correlation.run_id`
-- `payload.metadata.smoke.run_id` cuando el origen es `vigilante_stack_smoke`
 
 El publisher RabbitMQ además deja `run_id` en headers y en el log
 `frame_ingested_published_rabbitmq event_id=... run_id=... frame_ref=...`.
 Si no existe `run_id`, el evento mantiene el contrato anterior.
 
-## Sample local
+## Sample local dev/test
 
 El repo incluye `samples/cameras.example.json` y espera un MP4 en:
 
@@ -137,20 +120,11 @@ El repo incluye `samples/cameras.example.json` y espera un MP4 en:
 samples/cam01.mp4
 ```
 
-Si no tienes un video real liviano, genera uno reproducible:
+Si necesitas un video liviano para tests, genera uno reproducible:
 
 ```bash
 mkdir -p samples
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc=size=320x180:rate=10 -t 12 -pix_fmt yuv420p samples/cam01.mp4
-```
-
-El stack local publica ese asset como RTSP de laboratorio con MediaMTX + FFmpeg:
-
-```bash
-cd ../GIT
-./vigilante_stack.sh start-smoke-rtsp
-./vigilante_stack.sh check-smoke-rtsp
-./vigilante_stack.sh stop-smoke-rtsp
 ```
 
 ## Ejecución MP4
@@ -159,12 +133,6 @@ Comando local mínimo:
 
 ```bash
 PYTHONPATH=. python3 -m app.main --source-type file_replay --source-file samples/cam01.mp4 --camera-id <UUID_REAL> --fps 1 --max-frames 10
-```
-
-Ejemplo con UUID de desarrollo:
-
-```bash
-PYTHONPATH=. python3 -m app.main --source-type file_replay --source-file samples/cam01.mp4 --camera-id 11111111-1111-1111-1111-111111111111 --fps 1 --max-frames 3
 ```
 
 Salida esperada:
@@ -203,8 +171,8 @@ Ejemplo local con storage local y JSONL:
 ```bash
 PYTHONPATH=. python -m app.main \
   --source-type rtsp \
-  --rtsp-url rtsp://127.0.0.1:8554/cam01 \
-  --camera-id 11111111-1111-1111-1111-111111111111 \
+  --rtsp-url rtsp://camera.local:554/live \
+  --camera-id <UUID_REAL_API_CAMERA> \
   --fps 1 \
   --max-frames 20 \
   --storage-backend local \
@@ -230,8 +198,8 @@ docker compose -f ../vigilante-docs/docker/docker-compose.support.yml up -d mini
 
 PYTHONPATH=. python -m app.main \
   --source-type rtsp \
-  --rtsp-url rtsp://127.0.0.1:8554/cam01 \
-  --camera-id 11111111-1111-1111-1111-111111111111 \
+  --rtsp-url rtsp://camera.local:554/live \
+  --camera-id <UUID_REAL_API_CAMERA> \
   --fps 1 \
   --max-frames 20 \
   --storage-backend minio \

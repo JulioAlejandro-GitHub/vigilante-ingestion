@@ -33,7 +33,6 @@ class ActiveCamera:
     site_id: str | None
     zone_id: str | None
     name: str | None
-    is_smoke_ready: bool
     rtsp_url: str
     safe_rtsp_url: str
     rtsp_transport: str
@@ -89,7 +88,6 @@ def load_active_rtsp_cameras(
                 site_id=_optional_text(row.get("site_id")),
                 zone_id=_optional_text(row.get("zone_id")),
                 name=_optional_text(row.get("name")),
-                is_smoke_ready=_is_smoke_ready(metadata),
                 rtsp_url=rtsp.url,
                 safe_rtsp_url=rtsp.safe_url,
                 rtsp_transport=rtsp.rtsp_transport,
@@ -213,11 +211,6 @@ def _is_active_value(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"true", "t", "yes", "y", "on"}
     return False
-
-
-def _is_smoke_ready(metadata: dict[str, Any]) -> bool:
-    smoke = metadata.get("smoke")
-    return isinstance(smoke, dict) and _is_active_value(smoke.get("is_smoke_ready"))
 
 
 def _config_version_hash(

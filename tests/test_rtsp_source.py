@@ -15,7 +15,7 @@ CAMERA_ID = "11111111-1111-1111-1111-111111111111"
 def test_rtsp_source_reads_sampled_frames_from_reader() -> None:
     clock = _Clock(datetime(2026, 1, 1, tzinfo=timezone.utc), step_seconds=0.5)
     source = RtspSource(
-        rtsp_url="rtsp://127.0.0.1:8554/cam01",
+        rtsp_url="rtsp://camera.local:554/live",
         camera_id=CAMERA_ID,
         capture_fps=2,
         reader_factory=lambda: _FakeReader([_jpeg(width=160, height=90), _jpeg(width=320, height=180)]),
@@ -27,7 +27,7 @@ def test_rtsp_source_reads_sampled_frames_from_reader() -> None:
     assert [frame.sample_index for frame in frames] == [5, 6]
     assert [frame.source_frame_index for frame in frames] == [5, 6]
     assert frames[0].source_type == "rtsp"
-    assert frames[0].source_uri == "rtsp://127.0.0.1:8554/cam01"
+    assert frames[0].source_uri == "rtsp://camera.local:554/live"
     assert frames[0].width == 160
     assert frames[0].height == 90
     assert frames[1].width == 320
@@ -68,13 +68,13 @@ def test_ingestion_config_accepts_rtsp_source() -> None:
     config = IngestionConfig(
         source_file="samples/cam01.mp4",
         source_type="rtsp",
-        rtsp_url="rtsp://127.0.0.1:8554/cam01",
+        rtsp_url="rtsp://camera.local:554/live",
         camera_id=CAMERA_ID,
         capture_fps=5,
     )
 
     assert config.source_type == "rtsp"
-    assert config.rtsp_url == "rtsp://127.0.0.1:8554/cam01"
+    assert config.rtsp_url == "rtsp://camera.local:554/live"
     assert config.capture_fps == 5
 
 
@@ -102,7 +102,7 @@ def test_ingestion_config_accepts_rtsp_with_camera_database_config() -> None:
 
 def test_rtsp_source_propagates_read_timeout_for_runner_reconnect() -> None:
     source = RtspSource(
-        rtsp_url="rtsp://127.0.0.1:8554/cam01",
+        rtsp_url="rtsp://camera.local:554/live",
         camera_id=CAMERA_ID,
         capture_fps=1,
         reader_factory=lambda: _FakeReader([]),

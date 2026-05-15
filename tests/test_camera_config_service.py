@@ -36,7 +36,7 @@ def test_apply_camera_database_config_resolves_rtsp_url_from_api_camera_row() ->
             "camera_user": "admin",
             "camera_secret": encrypted_secret,
             "metadata": {
-                "stream_url": "rtsp://wrong:wrong@legacy.local:8554/live",
+                "stream_url": "rtsp://wrong:wrong@legacy.local:554/live",
                 "recognition": {
                     "face_tuning": {"det_size": "320,320"},
                     "vlm_policy": {"backend": "simple"},

@@ -22,7 +22,6 @@ def test_load_active_rtsp_cameras_filters_active_rtsp_rows() -> None:
     assert cameras[0].external_camera_key == "cam-a"
     assert cameras[0].site_id == SITE_ID
     assert cameras[0].zone_id == ZONE_ID
-    assert cameras[0].is_smoke_ready is True
     assert cameras[0].rtsp_url == "rtsp://admin:secret@192.168.100.143:554/cam/realmonitor?channel=1&subtype=0"
     assert cameras[0].safe_rtsp_url == "rtsp://admin:***@192.168.100.143:554/cam/realmonitor?channel=1&subtype=0"
     assert cameras[0].camera_runtime_config["recognition"]["vlm_policy"]["backend"] == "simple"
@@ -58,15 +57,15 @@ def test_load_active_rtsp_cameras_supports_legacy_metadata_fallback() -> None:
         "camera_user": None,
         "camera_secret": None,
         "metadata": {
-            "stream_url": "rtsp://legacy:legacy-secret@legacy.local:8554/live?channel=2&subtype=1",
+            "stream_url": "rtsp://legacy:legacy-secret@legacy.local:554/live?channel=2&subtype=1",
         },
     }
 
     cameras = load_active_rtsp_cameras(_config(), row_fetcher=lambda _config: [row])
 
     assert len(cameras) == 1
-    assert cameras[0].rtsp_url == "rtsp://legacy:legacy-secret@legacy.local:8554/live?channel=2&subtype=1"
-    assert cameras[0].safe_rtsp_url == "rtsp://legacy:***@legacy.local:8554/live?channel=2&subtype=1"
+    assert cameras[0].rtsp_url == "rtsp://legacy:legacy-secret@legacy.local:554/live?channel=2&subtype=1"
+    assert cameras[0].safe_rtsp_url == "rtsp://legacy:***@legacy.local:554/live?channel=2&subtype=1"
 
 
 def test_active_camera_hash_changes_when_recognition_runtime_config_changes() -> None:
@@ -127,6 +126,5 @@ def _row(
         "camera_secret": "secret",
         "metadata": {
             "recognition": {"vlm_policy": {"backend": "simple"}},
-            "smoke": {"is_smoke_ready": True},
         },
     }

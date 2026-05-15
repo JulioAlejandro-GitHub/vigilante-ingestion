@@ -98,7 +98,7 @@ class IngestionConfig:
     rtsp_max_reconnect_attempts: int | None = None
     event_version: str = "1.0"
     component_version: str = "0.1.0"
-    instance_id: str = "local-replay"
+    instance_id: str = "local-ingestion"
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
     minio_endpoint: str = "localhost:9000"
@@ -119,7 +119,6 @@ class IngestionConfig:
     rabbitmq_frame_dlq_routing_key: str = "frame.ingested.dlq"
     run_id: str | None = None
     run_id_source: str | None = None
-    smoke_correlation_path: Path | None = None
     log_level: str = "INFO"
     runtime_log_level_path: Path = Path(".runtime/log-level")
     runtime_log_level_poll_seconds: float = 2.0
@@ -182,7 +181,7 @@ def config_from_env() -> IngestionConfig:
     load_dotenv()
     max_frames = os.getenv("INGESTION_MAX_FRAMES")
     storage_backend = os.getenv("INGESTION_STORAGE_BACKEND", "local")
-    source_type = os.getenv("INGESTION_SOURCE_TYPE", "file_replay")
+    source_type = os.getenv("INGESTION_SOURCE_TYPE", "active_cameras")
     replay_default = False if source_type in {"rtsp", "active_cameras"} else True
     rtsp_max_reconnect_attempts = os.getenv("INGESTION_RTSP_MAX_RECONNECT_ATTEMPTS")
     active_camera_concurrency = os.getenv("INGESTION_ACTIVE_CAMERA_CONCURRENCY")
@@ -229,7 +228,7 @@ def config_from_env() -> IngestionConfig:
         rtsp_reconnect_max_delay_seconds=float(os.getenv("INGESTION_RTSP_RECONNECT_MAX_DELAY_SECONDS", "30")),
         rtsp_reconnect_backoff_multiplier=float(os.getenv("INGESTION_RTSP_RECONNECT_BACKOFF_MULTIPLIER", "2")),
         rtsp_max_reconnect_attempts=int(rtsp_max_reconnect_attempts) if rtsp_max_reconnect_attempts else None,
-        instance_id=os.getenv("INGESTION_INSTANCE_ID", "local-replay"),
+        instance_id=os.getenv("INGESTION_INSTANCE_ID", "local-ingestion"),
         ffmpeg_path=os.getenv("INGESTION_FFMPEG_PATH", "ffmpeg"),
         ffprobe_path=os.getenv("INGESTION_FFPROBE_PATH", "ffprobe"),
         minio_endpoint=remote_env("ENDPOINT", "localhost:9000"),
@@ -250,11 +249,6 @@ def config_from_env() -> IngestionConfig:
         rabbitmq_frame_dlq_routing_key=os.getenv("RABBITMQ_FRAME_DLQ_ROUTING_KEY", "frame.ingested.dlq"),
         run_id=os.getenv("INGESTION_RUN_ID"),
         run_id_source=os.getenv("INGESTION_RUN_ID_SOURCE"),
-        smoke_correlation_path=(
-            Path(os.getenv("INGESTION_SMOKE_CORRELATION_PATH"))
-            if os.getenv("INGESTION_SMOKE_CORRELATION_PATH")
-            else None
-        ),
         log_level=os.getenv("LOG_LEVEL", os.getenv("INGESTION_LOG_LEVEL", "INFO")),
         runtime_log_level_path=Path(os.getenv("RUNTIME_LOG_LEVEL_PATH", os.getenv("INGESTION_RUNTIME_LOG_LEVEL_PATH", ".runtime/log-level"))),
         runtime_log_level_poll_seconds=float(

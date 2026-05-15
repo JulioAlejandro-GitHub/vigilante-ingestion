@@ -97,7 +97,7 @@ def test_rtsp_runner_uses_existing_local_storage_and_jsonl_contract(tmp_path) ->
     assert event["payload"]["camera_id"] == CAMERA_ID
     assert event["payload"]["source_type"] == "rtsp"
     assert event["payload"]["content_type"] == "image/jpeg"
-    assert event["payload"]["metadata"]["source_uri"] == "rtsp://127.0.0.1:8554/cam01"
+    assert event["payload"]["metadata"]["source_uri"] == "rtsp://camera.local:554/live"
 
 
 def test_rtsp_runner_masks_secret_in_logs(caplog) -> None:
@@ -123,7 +123,7 @@ def _config(
     local_storage_dir: Path | None = None,
     outbox_path: Path | None = None,
     max_reconnect_attempts: int | None = None,
-    rtsp_url: str = "rtsp://127.0.0.1:8554/cam01",
+    rtsp_url: str = "rtsp://camera.local:554/live",
 ) -> IngestionConfig:
     return IngestionConfig(
         source_file=Path("samples/cam01.mp4"),
@@ -196,7 +196,7 @@ def _frame(*, sample_index: int) -> CapturedFrame:
         height=90,
         content_type="image/jpeg",
         source_type="rtsp",
-        source_uri="rtsp://127.0.0.1:8554/cam01",
+        source_uri="rtsp://camera.local:554/live",
         source_timestamp_seconds=float(sample_index),
         source_frame_index=sample_index,
         sample_index=sample_index,

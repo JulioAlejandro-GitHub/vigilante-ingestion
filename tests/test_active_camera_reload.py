@@ -179,7 +179,6 @@ def _camera(camera_id: str, *, config_hash: str | None = None, path: str = "/cam
         site_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         zone_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         name=f"Camera {camera_id[:4]}",
-        is_smoke_ready=False,
         rtsp_url=f"rtsp://admin:secret@camera-{camera_id[:4]}.local:554{path}",
         safe_rtsp_url=f"rtsp://admin:***@camera-{camera_id[:4]}.local:554{path}",
         rtsp_transport="tcp",
