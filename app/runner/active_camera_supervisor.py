@@ -220,7 +220,7 @@ class ActiveCameraSupervisor:
             if not self._can_start_more_workers_locked(camera.camera_id):
                 state = self.states.get(camera.camera_id) or CameraWorkerState(camera=camera, is_desired_active=True)
                 state.update_camera(camera)
-                state.mark("stopped", desired_active=True)
+                state.mark("stopped", desired_active=True, error="not_started_by_concurrency_limit")
                 self.states[camera.camera_id] = state
                 logger.warning(
                     "active_camera_not_started_due_to_concurrency_limit camera_id=%s external_camera_key=%s limit=%s",
