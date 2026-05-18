@@ -42,6 +42,27 @@ def test_supervisor_builds_one_worker_per_active_camera_and_uses_pipeline_factor
     assert sorted(runner_configs) == [CAMERA_A, CAMERA_B]
 
 
+def test_active_camera_concurrency_defaults_to_two(tmp_path) -> None:
+    config = _config(tmp_path)
+    starts: list[str] = []
+
+    supervisor = ActiveCameraSupervisor(
+        config=config,
+        camera_loader=lambda _config: [_camera(CAMERA_A), _camera(CAMERA_B)],
+        storage_factory=lambda _config: _FakeStorage(),
+        publisher_factory=lambda _config: _FakePublisher(),
+        runner_factory=lambda config, storage, publisher, callback, should_stop: starts.append(config.camera_id)
+        or _FakeRunner(callback=callback, result=_result(frames=1)),
+        sleep=lambda _delay: None,
+    )
+
+    result = supervisor.run()
+
+    assert config.active_camera_concurrency == 2
+    assert result.workers_started == 2
+    assert sorted(starts) == [CAMERA_A, CAMERA_B]
+
+
 def test_supervisor_isolates_failed_camera_from_other_workers(tmp_path) -> None:
     def runner_factory(config, storage, publisher, callback, should_stop):
         if config.camera_id == CAMERA_A:

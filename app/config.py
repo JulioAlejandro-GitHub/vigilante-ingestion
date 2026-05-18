@@ -84,7 +84,7 @@ class IngestionConfig:
     camera_config_db_schema: str = "api"
     camera_secret_fernet_key: str | None = None
     active_camera_source: str = "db"
-    active_camera_concurrency: int | None = None
+    active_camera_concurrency: int | None = 2
     active_camera_refresh_seconds: float = 30.0
     active_camera_status_interval_seconds: float = 30.0
     active_camera_stop_timeout_seconds: float = 10.0
@@ -216,7 +216,7 @@ def config_from_env() -> IngestionConfig:
         camera_config_db_schema=os.getenv("INGESTION_CAMERA_DB_SCHEMA", os.getenv("DB_SCHEMA_API", "api")),
         camera_secret_fernet_key=os.getenv("CAMERA_SECRET_FERNET_KEY"),
         active_camera_source=os.getenv("INGESTION_ACTIVE_CAMERA_SOURCE", "db"),
-        active_camera_concurrency=int(active_camera_concurrency) if active_camera_concurrency else None,
+        active_camera_concurrency=int(active_camera_concurrency) if active_camera_concurrency else 2,
         active_camera_refresh_seconds=float(os.getenv("INGESTION_ACTIVE_CAMERA_REFRESH_SECONDS", "30")),
         active_camera_status_interval_seconds=float(os.getenv("INGESTION_ACTIVE_CAMERA_STATUS_INTERVAL_SECONDS", "30")),
         active_camera_stop_timeout_seconds=float(os.getenv("INGESTION_ACTIVE_CAMERA_STOP_TIMEOUT_SECONDS", "10")),
